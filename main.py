@@ -1,7 +1,11 @@
+import sys
 import os
-from src import config
-from src.image_processor import load_and_preprocess
-from src.canny_converter import generate_files_canny
+
+# 현재 폴더 경로 설정
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from modules import config
+from modules import load_and_preprocess, generate_files_canny
 
 def main():
     print("🚀 심플 G-코드 변환기 (Canny Only) 시작")
