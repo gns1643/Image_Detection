@@ -1,19 +1,30 @@
 import cv2
+import os
 import svgwrite
 import numpy as np
+from typing import Tuple, List
 from .config import FINAL_TH1, FINAL_TH2, Z_SAFE, Z_DRAW, FEED_RATE, SCALE
 
-def generate_files_canny(img_blurr, nc_filepath, svg_filepath):
+def generate_files_canny(img_blurr: np.ndarray, nc_filepath: str, svg_filepath: str) -> bool:
     """Canny Edge Detection 방식을 사용하여 NC와 SVG 파일을 생성합니다."""
-    print(f"🔄 [2단계] 파일 생성 시작 (Threshold: {FINAL_TH1}, {FINAL_TH2})")
+    print(f">> [2단계] 파일 생성 시작 (Threshold: {FINAL_TH1}, {FINAL_TH2})")
     
     # 1. 엣지 검출 (Canny)
     edges = cv2.Canny(img_blurr, FINAL_TH1, FINAL_TH2)
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     
+    # [최적화] 로봇 이동 거리 단축을 위해 윤곽선을 위에서 아래로(Y축 기준) 정렬
+    # bounding rect: (x, y, w, h) -> y값(c[1])을 기준으로 정렬
+    contours = sorted(contours, key=lambda c: cv2.boundingRect(c)[1])
+
     # 2. SVG 준비
     height, width = img_blurr.shape
-    dwg = svgwrite.Drawing(svg_filepath, profile='tiny', size=(width, height))
+
+    # 출력 폴더가 없으면 생성 (안전장치)
+    os.makedirs(os.path.dirname(svg_filepath), exist_ok=True)
+    os.makedirs(os.path.dirname(nc_filepath), exist_ok=True)
+    
+    dwg = svgwrite.Drawing(svg_filepath, profile='tiny', size=(width, height), viewBox=f"0 0 {width} {height}")
     
     count = 0
     
@@ -26,7 +37,7 @@ def generate_files_canny(img_blurr, nc_filepath, svg_filepath):
             f.write("G90 (Absolute)\n")
             f.write(f"G0 Z{Z_SAFE}\n") # 안전 높이로 들기
             
-            for contour in contours:
+            for i, contour in enumerate(contours):
                 # 잡티 제거 (너무 짧은 선은 무시)
                 if cv2.arcLength(contour, closed=False) < 15:
                     continue
@@ -72,11 +83,11 @@ def generate_files_canny(img_blurr, nc_filepath, svg_filepath):
         # SVG 파일 저장
         dwg.save()
         
-        print(f"✅ 생성 완료! 총 {count}개의 획")
-        print(f"   1️⃣ SVG 파일: {svg_filepath}")
-        print(f"   2️⃣ NC  파일: {nc_filepath}")
+        print(f">> 생성 완료! 총 {count}개의 획")
+        print(f"   1. SVG 파일: {svg_filepath}")
+        print(f"   2. NC  파일: {nc_filepath}")
         return True
         
     except Exception as e:
-        print(f"❌ 파일 생성 중 오류 발생: {e}")
+        print(f"[오류] 파일 생성 중 오류 발생: {e}")
         return False
