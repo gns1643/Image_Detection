@@ -1,6 +1,7 @@
 import cv2
 import os
 import time
+import numpy as np
 
 def run_photo_booth():
     """
@@ -19,8 +20,8 @@ def run_photo_booth():
     os.makedirs(SAVE_DIR, exist_ok=True)
 
     def get_next_filename(folder, ext=".png"):
-        files = [f for f in os.listdir(folder) if f.endswith(ext)]
-        return os.path.join(folder, f"{len(files) + 1}{ext}")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        return os.path.join(folder, f"{timestamp}{ext}")
 
     def draw_button(frame):
         h, w, _ = frame.shape
@@ -66,7 +67,10 @@ def run_photo_booth():
             return None
 
         save_path = get_next_filename(SAVE_DIR)
-        cv2.imwrite(save_path, final_frame)
+        # 한글 경로 지원을 위해 imencode와 tofile 사용
+        result, encoded_img = cv2.imencode(".png", final_frame)
+        if result:
+            encoded_img.tofile(save_path)
         print(f"📸 저장 완료: {save_path}")
         return save_path
 
