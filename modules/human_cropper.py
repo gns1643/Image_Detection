@@ -85,7 +85,7 @@ def detect_and_crop_face(image: np.ndarray) -> np.ndarray:
 
     # 잘라낼 영역에 여백(padding)을 추가합니다.
     padding_w = int(w * 0.2)
-    padding_h = int(h * 0.2)
+    padding_h = int(h * 0.4)
     
     # 여백을 적용한 새로운 좌표를 계산합니다.
     y1 = max(0, y - padding_h)

@@ -3,5 +3,5 @@ __pycache__/
 *.pyc
 garbageFile/
 Test/
-data/processed/*
-!data/processed/.gitkeep
+data/*
+!data/.gitkeep
