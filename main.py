@@ -33,20 +33,29 @@ def main():
     
     # --- 2단계: 사람 및 얼굴 감지/자르기 ---
     person_image = detect_and_crop_person(image)
-    face_image = detect_and_crop_face(person_image)
 
-    # --- 중간 과정 저장: 잘라낸 얼굴 ---
+    # --- 중간 과정 저장 ---
     intermediate_dir = 'data/intermediate'
     os.makedirs(intermediate_dir, exist_ok=True)
     base_filename = os.path.splitext(os.path.basename(input_path))[0]
-    intermediate_filename = f"{base_filename}_cropped_face.jpg"
-    intermediate_path = os.path.join(intermediate_dir, intermediate_filename)
 
-    # 한글 경로 및 파일명 처리를 위해 cv2.imencode 사용
-    is_success, im_buf_arr = cv2.imencode(".jpg", face_image)
-    if is_success:
-        im_buf_arr.tofile(intermediate_path)
-        print(f"중간 저장: 잘라낸 얼굴 이미지를 '{intermediate_path}'에 저장했습니다.")
+    # 1. 잘라낸 사람 저장
+    person_intermediate_filename = f"{base_filename}_cropped_person.jpg"
+    person_intermediate_path = os.path.join(intermediate_dir, person_intermediate_filename)
+    is_success_person, im_buf_arr_person = cv2.imencode(".jpg", person_image)
+    if is_success_person:
+        im_buf_arr_person.tofile(person_intermediate_path)
+        print(f"중간 저장: 잘라낸 사람 이미지를 '{person_intermediate_path}'에 저장했습니다.")
+
+    face_image = detect_and_crop_face(person_image)
+
+    # 2. 잘라낸 얼굴 저장
+    face_intermediate_filename = f"{base_filename}_cropped_face.jpg"
+    face_intermediate_path = os.path.join(intermediate_dir, face_intermediate_filename)
+    is_success_face, im_buf_arr_face = cv2.imencode(".jpg", face_image)
+    if is_success_face:
+        im_buf_arr_face.tofile(face_intermediate_path)
+        print(f"중간 저장: 잘라낸 얼굴 이미지를 '{face_intermediate_path}'에 저장했습니다.")
 
     # --- 3단계: 이미지 전처리 (배경 제거 + 블러) ---
     img_blur = preprocess_image(face_image)

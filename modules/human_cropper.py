@@ -83,6 +83,18 @@ def detect_and_crop_face(image: np.ndarray) -> np.ndarray:
 
     print(f">> 얼굴 감지 완료. 위치: (x={x}, y={y}, w={w}, h={h})")
 
-    # 얼굴 부분을 잘라냅니다.
-    cropped_image = image[y:y+h, x:x+w]
+    # 잘라낼 영역에 여백(padding)을 추가합니다.
+    padding_w = int(w * 0.2)
+    padding_h = int(h * 0.2)
+    
+    # 여백을 적용한 새로운 좌표를 계산합니다.
+    y1 = max(0, y - padding_h)
+    y2 = min(image.shape[0], y + h + padding_h)
+    x1 = max(0, x - padding_w)
+    x2 = min(image.shape[1], x + w + padding_w)
+
+    print(f"   - 여백 적용 후, 자를 영역: (y1={y1}, y2={y2}, x1={x1}, x2={x2})")
+
+    # 얼굴 부분을 여유있게 잘라냅니다.
+    cropped_image = image[y1:y2, x1:x2]
     return cropped_image
