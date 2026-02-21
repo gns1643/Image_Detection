@@ -38,7 +38,7 @@ def preprocess_image(image_bgr: np.ndarray):
             
         # 3. 그레이스케일 변환 및 블러링 (노이즈 제거용)
         gray = cv2.cvtColor(img_bgr_processed, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        blur = cv2.GaussianBlur(gray, (7, 7), 0)
         
         return blur
         

@@ -5,13 +5,35 @@ import numpy as np
 from typing import Tuple, List
 from .config import FINAL_TH1, FINAL_TH2, Z_SAFE, Z_DRAW, FEED_RATE, SCALE
 
+def trim_contour_to_midpoint(approx: np.ndarray) -> np.ndarray:
+    """
+    갔다가 되돌아오는 contour에서 첫 절반(전진 경로)만 추출.
+    시작점에서 가장 멀리 떨어진 인덱스까지만 사용.
+    """
+    if len(approx) < 2:
+        return approx
+
+    start = approx[0][0].astype(float)
+    
+    # 각 점에서 시작점까지 거리 계산
+    distances = [
+        np.linalg.norm(approx[i][0].astype(float) - start)
+        for i in range(len(approx))
+    ]
+    
+    # 가장 먼 점의 인덱스 (= 턴어라운드 포인트)
+    turn_idx = int(np.argmax(distances))
+    
+    # 턴어라운드까지만 사용 (전진 경로만)
+    return approx[:turn_idx + 1]
+
 def generate_files_canny(img_blurr: np.ndarray, nc_filepath: str, svg_filepath: str) -> bool:
     """Canny Edge Detection 방식을 사용하여 NC와 SVG 파일을 생성합니다."""
     print(f">> [2단계] 파일 생성 시작 (Threshold: {FINAL_TH1}, {FINAL_TH2})")
     
     # 1. 엣지 검출 (Canny)
     edges = cv2.Canny(img_blurr, FINAL_TH1, FINAL_TH2)
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     # [최적화] 로봇 이동 거리 단축을 위해 윤곽선을 위에서 아래로(Y축 기준) 정렬
     # bounding rect: (x, y, w, h) -> y값(c[1])을 기준으로 정렬
@@ -45,6 +67,10 @@ def generate_files_canny(img_blurr: np.ndarray, nc_filepath: str, svg_filepath: 
                 # 단순화 (점 개수 줄이기)
                 epsilon = 0.002 * cv2.arcLength(contour, closed=False)
                 approx = cv2.approxPolyDP(contour, epsilon, closed=False)
+
+                
+                
+                approx = trim_contour_to_midpoint(approx)
                 
                 if len(approx) < 2: continue
 
