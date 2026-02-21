@@ -7,8 +7,8 @@ from modules import (
     config,
     preprocess_image,
     generate_files_canny,
-    detect_and_crop_person,
-    detect_and_crop_face,
+    detect_person_and_get_roi,
+    detect_face_and_get_roi,
     run_photo_booth
 )
 
@@ -107,10 +107,14 @@ def main():
             continue
 
         # --- 2단계: 사람 및 얼굴 감지/자르기 ---
-        person_image = detect_and_crop_person(image)
-        if person_image is None:
+        person_roi = detect_person_and_get_roi(image)
+        if person_roi is None:
             print("[오류] 사람을 감지하지 못했습니다.")
             continue
+        
+        x, y, w, h = person_roi
+        person_image = image[y:y+h, x:x+w]
+
 
         # --- 중간 과정 저장 ---
         person_intermediate_filename = f"{base_filename}_cropped_person.jpg"
@@ -120,10 +124,14 @@ def main():
             im_buf_arr_person.tofile(person_intermediate_path)
             print(f"중간 저장: 잘라낸 사람 이미지를 '{person_intermediate_path}'에 저장했습니다.")
 
-        face_image = detect_and_crop_face(person_image)
-        if face_image is None:
+        face_roi = detect_face_and_get_roi(person_image)
+        if face_roi is None:
             print("[오류] 얼굴을 감지하지 못했습니다.")
             continue
+
+        x1, y1, x2, y2 = face_roi
+        face_image = person_image[y1:y2, x1:x2]
+
 
         face_intermediate_filename = f"{base_filename}_cropped_face.jpg"
         face_intermediate_path = os.path.join(intermediate_dir, face_intermediate_filename)
