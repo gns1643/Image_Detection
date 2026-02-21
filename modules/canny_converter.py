@@ -48,27 +48,43 @@ def generate_files_canny(img_blurr: np.ndarray, nc_filepath: str, svg_filepath: 
                 
                 if len(approx) < 2: continue
 
+                # --- [수정된 부분: 되돌아오는 중복 경로 제거 로직] ---
+                path = []
+                for p in approx:
+                    px, py = float(p[0][0]), float(p[0][1])
+                    
+                    # 현재 획(path)에서 이미 지나간 점들 중, 
+                    # 반경 2픽셀 이내로 겹치는 곳(되돌아오는 길)이 있다면 그리지 않음
+                    is_duplicate = False
+                    for (ex, ey) in path:
+                        # 두 점 사이의 거리의 제곱이 4(반경 2픽셀)보다 작으면 중복으로 간주
+                        if (px - ex)**2 + (py - ey)**2 < 4.0:
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        path.append((px, py))
+                
+                # 중복을 제거하고 남은 점이 2개 미만이면 선을 그을 수 없으므로 무시
+                if len(path) < 2:
+                    continue
+                # ----------------------------------------------------
+
                 # --- [SVG 저장] ---
-                # 웹브라우저 확인용 (원본 좌표 사용)
-                points = [(float(p[0][0]), float(p[0][1])) for p in approx]
-                dwg.add(dwg.polyline(points, stroke='black', fill='none', stroke_width=2))
+                dwg.add(dwg.polyline(path, stroke='black', fill='none', stroke_width=2))
                 
                 # --- [G-코드 저장] ---
-                # 시작점으로 이동 (G0)
-                start_p = approx[0][0]
-                # 좌표 변환: Y축 반전 (이미지 좌표계 -> 로봇 좌표계)
-                # 필요시 SCALE 앞에 - 부호를 붙이거나 떼세요. 여기선 요청하신 대로 Y에 - 붙임.
-                sx = float(start_p[0]) * SCALE
-                sy = float(start_p[1]) * SCALE
+                start_p = path[0]
+                sx = start_p[0] * SCALE
+                sy = start_p[1] * SCALE
                 
                 f.write(f"G0 X{sx:.3f} Y{-sy:.3f}\n") 
                 f.write(f"G1 Z{Z_DRAW} F{FEED_RATE}\n") # 펜 내리기 (G1)
                 
                 # 경로 따라 그리기 (G1)
-                for i in range(1, len(approx)):
-                    p = approx[i][0]
-                    px = float(p[0]) * SCALE
-                    py = float(p[1]) * SCALE
+                for j in range(1, len(path)):
+                    px = path[j][0] * SCALE
+                    py = path[j][1] * SCALE
                     f.write(f"G1 X{px:.3f} Y{-py:.3f}\n")
                 
                 # 획 끝나면 펜 들기 (G0)
