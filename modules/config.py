@@ -48,10 +48,21 @@ def setup_photo_paths(photo_name="photo"):
     print(f"  - 사진 처리 폴더를 생성했습니다: {photo_folder_path}")
     return input_dir, intermediate_dir, output_dir
 
-# --- 고정 설정값 ---
+# --- 처리 모드 선택 ---
+PROCESSING_MODE_CROP_PERSON_FACE = "PERSON_AND_FACE" # 사람 감지 -> 얼굴 감지
+PROCESSING_MODE_CROP_FACE_ONLY = "FACE_ONLY"         # 얼굴만 바로 감지
+PROCESSING_MODE_NO_CROP = "NO_CROP"                  # 자르기 없음 (전체 이미지)
+
+# --- 외곽선 검출 알고리즘 선택 ---
+EDGE_DETECTION_CANNY = "CANNY"
+EDGE_DETECTION_DEXINED = "DEXINED"
+
+# --- 알고리즘별 설정값 ---
 # Canny 엣지 설정
 FINAL_TH1 = 50
 FINAL_TH2 = 100
+# DexiNed 이진화 임계값
+DEXINED_THRESHOLD = 128
 
 # G-코드(로봇) 설정
 Z_SAFE = 10.0       # 이동 높이 (mm)

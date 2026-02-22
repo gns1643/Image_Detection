@@ -36,18 +36,18 @@ def detect_and_crop_person(image: np.ndarray) -> np.ndarray:
     이미지에서 가장 큰 사람(상체)을 감지하고 해당 부분을 잘라냅니다.
     
     :param image: 원본 이미지 (OpenCV 형식)
-    :return: 사람이 감지되면 잘라낸 이미지, 아니면 원본 이미지를 그대로 반환합니다.
+    :return: 사람이 감지되면 잘라낸 이미지, 아니면 None을 반환합니다.
     """
     if body_cascade is None:
         print("[경고] 경고: 신체 감지 모델이 로드되지 않아 사람 감지 단계를 건너뜁니다.")
-        return image
+        return None
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     bodies = body_cascade.detectMultiScale(gray, 1.1, 4)
 
     if len(bodies) == 0:
         print("[정보] 정보: 이미지에서 사람(상체)을 찾지 못했습니다.")
-        return image # 사람을 못찾으면 원본 반환
+        return None # 사람을 못찾으면 None 반환
 
     # 감지된 사람 중 가장 큰 영역을 찾습니다 (너비*높이 기준).
     largest_body = max(bodies, key=lambda rect: rect[2] * rect[3])
@@ -64,18 +64,18 @@ def detect_and_crop_face(image: np.ndarray) -> np.ndarray:
     이미지에서 가장 큰 얼굴을 감지하고 해당 부분을 잘라냅니다.
     
     :param image: 사람만 잘라낸 이미지 또는 원본 이미지
-    :return: 얼굴이 감지되면 잘라낸 이미지, 아니면 입력된 이미지를 그대로 반환합니다.
+    :return: 얼굴이 감지되면 잘라낸 이미지, 아니면 None을 반환합니다.
     """
     if face_cascade is None:
         print("[경고] 경고: 얼굴 감지 모델이 로드되지 않아 얼굴 감지 단계를 건너뜁니다.")
-        return image
+        return None
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
     if len(faces) == 0:
         print("[정보] 정보: 이미지에서 얼굴을 찾지 못했습니다.")
-        return image # 얼굴을 못찾으면 원본 반환
+        return None # 얼굴을 못찾으면 None 반환
 
     # 가장 큰 얼굴을 선택합니다.
     largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
