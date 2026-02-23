@@ -1,5 +1,6 @@
-opencv-python
+opencv-contrib-python
 numpy
 rembg
 Pillow
 svgwrite
+mediapipe

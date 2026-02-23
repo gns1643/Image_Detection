@@ -2,6 +2,7 @@ import cv2
 import os
 import time
 import numpy as np
+from .human_cropper import detect_person_and_get_roi, detect_face_and_get_roi
 
 def run_photo_booth(save_dir=None):
     """
@@ -50,6 +51,24 @@ def run_photo_booth(save_dir=None):
             2
         )
 
+    def draw_guide_frames(frame):
+        # 원본(반전된) 프레임에서 가이드 라인 표시
+        # 1. 상체 감지 시도
+        person_roi = detect_person_and_get_roi(frame)
+        if person_roi:
+            x, y, w, h = person_roi
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2) # 하늘색: 상체
+            
+            # 2. 상체 영역 내에서 얼굴 감지 시도
+            person_img = frame[y:y+h, x:x+w]
+            face_roi = detect_face_and_get_roi(person_img)
+            if face_roi:
+                fx1, fy1, fx2, fy2 = face_roi
+                # 전체 프레임 좌표로 변환하여 그리기
+                cv2.rectangle(frame, (x + fx1, y + fy1), (x + fx2, y + fy2), (0, 255, 255), 2) # 노란색: 얼굴(A5)
+        
+        return frame
+
     def countdown_and_capture(cap):
         for i in range(3, 0, -1): # 카운트다운 5초 -> 3초
             # 매 카운트마다 새로운 프레임을 읽어 화면에 표시
@@ -59,6 +78,7 @@ def run_photo_booth(save_dir=None):
                 
                 # 좌우 반전 추가
                 frame = cv2.flip(frame, 1)
+                frame = draw_guide_frames(frame)
                 
                 h, w, _ = frame.shape
                 cv2.putText(
@@ -113,6 +133,7 @@ def run_photo_booth(save_dir=None):
         # 좌우 반전 추가
         frame = cv2.flip(frame, 1)
 
+        frame = draw_guide_frames(frame)
         draw_button(frame)
         cv2.imshow("Photo Booth", frame)
 

@@ -3,7 +3,7 @@ import numpy as np
 from rembg import remove
 from PIL import Image
 
-def preprocess_image(image_bgr: np.ndarray):
+def image_processor(image_bgr: np.ndarray):
     """
     이미지(OpenCV)를 입력받아 배경을 제거하고 부드럽게(Blur) 만듭니다.
     
