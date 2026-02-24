@@ -5,3 +5,4 @@ from .canny_converter import generate_files_canny
 from .thinning_converter import generate_files_thinning
 from .human_cropper import detect_person_and_get_roi, detect_face_and_get_roi
 from .photo_booth import run_photo_booth  
+from .sketch_generator import generate_sketch

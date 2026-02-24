@@ -17,8 +17,11 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
     else:
         gray = image
     
-    # 객체(선)는 흰색(255), 배경은 검은색(0)으로 변경
-    _, binary_image = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    # [수정] 이미지 대비를 극대화하여 연한 선을 진하게 만듦
+    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+    
+    # [수정] 임계값을 128에서 230으로 대폭 올려 연한 회색 선도 모두 잡아냄
+    _, binary_image = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY_INV)
     
     # 2. 세선화(뼈대 추출)
     thinned = cv2.ximgproc.thinning(binary_image)
@@ -52,9 +55,21 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
                     
                     cx, cy = next_pixel
 
-                # 점이 너무 적은 자잘한 노이즈는 버림
-                if len(path) > 2:
-                    paths.append(path)
+                 # 점이 너무 적은 자잘한 노이즈는 버림
+                if len(path) > 3: # 너무 짧은 선은 무시하도록 기준을 살짝 올림
+                    # 1. 수집된 픽셀 경로를 OpenCV가 계산할 수 있는 Numpy 배열로 변환
+                    path_np = np.array(path, dtype=np.float32)
+                    
+                    # 2. 경로 단순화 (스무딩)
+                    # epsilon 값이 커질수록 선이 둥글고 단순해집니다. (보통 1.0 ~ 2.0 사이가 좋습니다)
+                    epsilon = 1.5 
+                    approx = cv2.approxPolyDP(path_np, epsilon, closed=False)
+                    
+                    # 3. 단순화된 경로를 다시 리스트 형태로 변환
+                    smoothed_path = [(float(p[0][0]), float(p[0][1])) for p in approx]
+                    
+                    if len(smoothed_path) > 1:
+                        paths.append(smoothed_path)
 
     # 4. SVG 및 G-코드 생성
     os.makedirs(os.path.dirname(svg_filepath), exist_ok=True)

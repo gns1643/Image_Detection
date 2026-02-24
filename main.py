@@ -10,30 +10,31 @@ from modules import (
     generate_files_thinning,
     detect_person_and_get_roi,
     detect_face_and_get_roi,
-    run_photo_booth
+    run_photo_booth,
+    generate_sketch
 )
 
 def main():
-    print(">> 심플 G-코드 변환기 (MediaPipe 기반) 시작")
+    print(">> 심플 G-코드 변환기 (MediaPipe + AI 스케치 기반) 시작")
 
-    # 애플리케이션 시작 시 사용자가 이미지를 넣을 공용 폴더 생성
     os.makedirs(config.GENERAL_INPUT_DIR, exist_ok=True)
-    
-    # 프로그램 실행 시 단 한번, 메인 세션 폴더를 초기화
     config.initialize_session()
     photo_counter = 1
 
     while True:
-        # 경로 변수 초기화
         input_path = None
         
         print("\n[작업 모드 선택]")
-        print("1. 웹캠으로 사진 촬영하기")
-        print("2. 기존 이미지 파일 불러오기 (인물 사진용, 자동 크롭)")
-        print("3. 기존 이미지 파일에서 외곽선 바로 따기 (Canny, 크롭 없음)")
-        print("4. 스케치/일러스트 외곽선 따기 (세선화)")
+        print("1. 웹캠 촬영 (기존 Canny 방식)")
+        print("2. 기존 이미지 불러오기 (인물 사진용, 기존 Canny 방식)")
+        print("3. 기존 이미지 불러오기 (크롭 없음, Canny 외곽선)")
+        print("4. 기존 이미지 불러오기 (스케치/일러스트 세선화)")
+        print("5. 웹캠 촬영 (AI 딥러닝 스케치 + 블러 + Canny)")
+        print("6. 기존 이미지 불러오기 (AI 스케치 + 블러 + Canny)")
+        print("7. [NEW] 웹캠 촬영 (AI 딥러닝 스케치 + 세선화)")
+        print("8. [NEW] 기존 이미지 불러오기 (AI 스케치 + 세선화)")
         print("Q. 프로그램 종료")
-        mode = input(f"번호를 입력하세요 (1, 2, 3, 4 또는 Q): ").strip().upper()
+        mode = input(f"번호를 입력하세요 (1~8 또는 Q): ").strip().upper()
 
         if mode == 'Q':
             print("프로그램을 종료합니다.")
@@ -42,7 +43,8 @@ def main():
         base_photo_name = None
         photo_specific_name = None
 
-        if mode == '1':
+        # 웹캠을 사용하는 모드 (1, 5, 7)
+        if mode in ['1', '5', '7']:
             base_photo_name = "webcam"
             photo_specific_name = f"{photo_counter}_{base_photo_name}"
             
@@ -58,7 +60,8 @@ def main():
             input_path = captured_path
             base_filename = os.path.splitext(os.path.basename(input_path))[0]
 
-        elif mode in ['2', '3', '4']:
+        # 기존 이미지를 사용하는 모드 (2, 3, 4, 6, 8)
+        elif mode in ['2', '3', '4', '6', '8']:
             print(f"\n'{config.GENERAL_INPUT_DIR}' 폴더의 이미지 목록:")
             try:
                 files = [f for f in os.listdir(config.GENERAL_INPUT_DIR) if os.path.isfile(os.path.join(config.GENERAL_INPUT_DIR, f))]
@@ -115,9 +118,8 @@ def main():
             
             generate_files_thinning(image, nc_path, svg_path)
             
-            print(f"\n모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
             print("-" * 30)
-
             photo_counter += 1
             continue
 
@@ -134,13 +136,12 @@ def main():
             
             generate_files_canny(img_blur, nc_path, svg_path)
             
-            print(f"\n모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
             print("-" * 30)
-
             photo_counter += 1
             continue
 
-        # [모드 1, 2] 인물 사진 처리 (자동 크롭 + Canny)
+        # [모드 1, 2, 5, 6, 7, 8] 인물 사진 처리 (자동 크롭)
         print("\n>> [2단계] MediaPipe로 상체 및 얼굴 감지 시작")
         person_roi = detect_person_and_get_roi(image)
         
@@ -157,7 +158,7 @@ def main():
         is_success_person, im_buf_arr_person = cv2.imencode(".jpg", person_image)
         if is_success_person:
             im_buf_arr_person.tofile(person_intermediate_path)
-            print(f"   - 중간 저장: '{person_intermediate_path}'")
+            print(f"   - 중간 저장(1. 상체 크롭): '{person_intermediate_path}'")
 
         face_roi = detect_face_and_get_roi(person_image)
         if face_roi:
@@ -173,7 +174,7 @@ def main():
         is_success_face, im_buf_arr_face = cv2.imencode(".jpg", face_image)
         if is_success_face:
             im_buf_arr_face.tofile(face_intermediate_path)
-            print(f"   - 중간 저장: '{face_intermediate_path}'")
+            print(f"   - 중간 저장(2. 얼굴 크롭): '{face_intermediate_path}'")
 
         # --- 3단계: 이미지 전처리 (배경 제거 + 블러) ---
         print("\n>> [3단계] 이미지 전처리 시작")
@@ -181,18 +182,64 @@ def main():
         if img_blur is None:
             print("[오류] 이미지 전처리 중 문제가 발생했습니다.")
             continue
+            
+        bg_removed_path = os.path.join(intermediate_dir, f"{base_filename}_3_bg_removed.png")
+        is_success_bg, im_buf_bg = cv2.imencode(".png", img_blur)
+        if is_success_bg:
+            im_buf_bg.tofile(bg_removed_path)
+            print(f"   - 중간 저장(3. 배경 제거): '{bg_removed_path}'")
         
-        # --- 4단계: 변환 및 저장 (Canny 방식) ---
-        output_base_name = f"{base_filename}_face"
-        nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-        svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-        
-        generate_files_canny(img_blur, nc_path, svg_path)
-        
-        print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
-        print("-" * 30)
+        # --- 4단계: 변환 및 저장 ---
+        if mode in ['1', '2']:
+            output_base_name = f"{base_filename}_canny_face"
+            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
+            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
+            
+            generate_files_canny(img_blur, nc_path, svg_path)
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 
-        # 다음 사진을 위해 카운터 증가
+        elif mode in ['5', '6']:
+            print("\n>> [3.5단계] 딥러닝 AI 스케치 변환 (Anime 스타일) 시작")
+            sketch_image = generate_sketch(img_blur)
+            if sketch_image is None: continue
+                
+            sketch_path = os.path.join(intermediate_dir, f"{base_filename}_4_ai_sketch_anime.png")
+            is_success_sketch, im_buf_sketch = cv2.imencode(".png", sketch_image)
+            if is_success_sketch:
+                im_buf_sketch.tofile(sketch_path)
+                print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
+            
+            print("\n>> [4단계] Canny 외곽선 추출 시작")
+            
+
+            output_base_name = f"{base_filename}_ai_sketch_anime_canny"
+            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
+            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
+            
+            generate_files_canny(sketch_image, nc_path, svg_path)
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+
+        elif mode in ['7', '8']:
+            print("\n>> [3.5단계] 딥러닝 AI 스케치 변환 (Anime 스타일) 시작")
+            sketch_image = generate_sketch(img_blur)
+            if sketch_image is None: continue
+                
+            sketch_path = os.path.join(intermediate_dir, f"{base_filename}_4_ai_sketch_anime.png")
+            is_success_sketch, im_buf_sketch = cv2.imencode(".png", sketch_image)
+            if is_success_sketch:
+                im_buf_sketch.tofile(sketch_path)
+                print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
+            
+            output_base_name = f"{base_filename}_ai_sketch_anime_thinning"
+            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
+            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
+            
+            print("\n>> [4단계] 세선화(Thinning) 및 G-코드 생성 시작")
+            # 7, 8번 모드: 블러 없이 스케치 이미지를 그대로 세선화 모듈로 넘깁니다.
+            generate_files_thinning(sketch_image, nc_path, svg_path)
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+
+        print("-" * 30)
         photo_counter += 1
 
 if __name__ == "__main__":
