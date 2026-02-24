@@ -5,3 +5,5 @@ garbageFile/
 Test/
 data/*
 !data/.gitkeep
+*.py[cod]
+*$py.class
