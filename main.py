@@ -23,23 +23,49 @@ def main():
     photo_counter = 1
 
     while True:
-        input_path = None
-        
-        print("\n[작업 모드 선택]")
-        print("1. 웹캠 촬영 (기존 Canny 방식)")
-        print("2. 기존 이미지 불러오기 (인물 사진용, 기존 Canny 방식)")
-        print("3. 기존 이미지 불러오기 (크롭 없음, Canny 외곽선)")
-        print("4. 기존 이미지 불러오기 (스케치/일러스트 세선화)")
-        print("5. 웹캠 촬영 (AI 딥러닝 스케치 + 블러 + Canny)")
-        print("6. 기존 이미지 불러오기 (AI 스케치 + 블러 + Canny)")
-        print("7. [NEW] 웹캠 촬영 (AI 딥러닝 스케치 + 세선화)")
-        print("8. [NEW] 기존 이미지 불러오기 (AI 스케치 + 세선화)")
+        print("\n" + "="*50)
+        print(" [메인 메뉴] 작업 방식을 선택하세요")
+        print("="*50)
+        print("1. 기존 Canny 방식 (외곽선 강조)")
+        print("2. 기존 세선화 방식 (스케치/일러스트용)")
+        print("3. Informative-Drawing 기반 AI 스케치 (추천)")
         print("Q. 프로그램 종료")
-        mode = input(f"번호를 입력하세요 (1~8 또는 Q): ").strip().upper()
+        print("="*50)
+        
+        main_choice = input("선택 (1~3 또는 Q): ").strip().upper()
 
-        if mode == 'Q':
+        if main_choice == 'Q':
             print("프로그램을 종료합니다.")
             break
+        
+        mode = None
+        if main_choice == '1':
+            print("\n[Canny 방식 하위 메뉴]")
+            print("1. 웹캠 촬영 (인물 크롭)")
+            print("2. 기존 이미지 불러오기 (인물 크롭)")
+            print("3. 기존 이미지 불러오기 (크롭 없음, 전체 외곽선)")
+            sub_choice = input("선택 (1~3): ").strip()
+            if sub_choice in ['1', '2', '3']: mode = sub_choice
+            
+        elif main_choice == '2':
+            print("\n[세선화 방식 하위 메뉴]")
+            print("1. 기존 이미지 불러오기 (스케치/일러스트 세선화)")
+            sub_choice = input("선택 (1): ").strip()
+            if sub_choice == '1': mode = '4'
+            
+        elif main_choice == '3':
+            print("\n[Informative-Drawing AI 스케치 하위 메뉴]")
+            print("1. 웹캠 촬영 (AI 스케치 + Canny)")
+            print("2. 기존 이미지 불러오기 (AI 스케치 + Canny)")
+            print("3. 웹캠 촬영 (AI 스케치 + 세선화)")
+            print("4. 기존 이미지 불러오기 (AI 스케치 + 세선화)")
+            sub_choice = input("선택 (1~4): ").strip()
+            mapping = {'1': '5', '2': '6', '3': '7', '4': '8'}
+            mode = mapping.get(sub_choice)
+
+        if mode is None:
+            print("[알림] 잘못된 선택이거나 상위 메뉴로 돌아갑니다.")
+            continue
 
         base_photo_name = None
         photo_specific_name = None
