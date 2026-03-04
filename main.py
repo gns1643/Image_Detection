@@ -6,6 +6,7 @@ import shutil
 from modules import (
     config,
     image_processor,
+    generate_portrait_lines, # <-- 새로 추가된 초상화 라인 추출 함수
     generate_files_canny,
     generate_files_thinning,
     detect_person_and_get_roi,
@@ -15,7 +16,7 @@ from modules import (
 )
 
 def main():
-    print(">> 심플 G-코드 변환기 (MediaPipe + AI 스케치 기반) 시작")
+    print(">> 심플 G-코드 변환기 (디테일 펜 초상화 지원) 시작")
 
     os.makedirs(config.GENERAL_INPUT_DIR, exist_ok=True)
     config.initialize_session()
@@ -31,10 +32,12 @@ def main():
         print("4. 기존 이미지 불러오기 (스케치/일러스트 세선화)")
         print("5. 웹캠 촬영 (AI 딥러닝 스케치 + 블러 + Canny)")
         print("6. 기존 이미지 불러오기 (AI 스케치 + 블러 + Canny)")
-        print("7. [NEW] 웹캠 촬영 (AI 딥러닝 스케치 + 세선화)")
-        print("8. [NEW] 기존 이미지 불러오기 (AI 스케치 + 세선화)")
+        print("7. 웹캠 촬영 (AI 딥러닝 스케치 + 세선화)")
+        print("8. 기존 이미지 불러오기 (AI 스케치 + 세선화)")
+        print("9. [NEW] 웹캠 촬영 (디테일 펜 초상화 + 세선화)")
+        print("10.[NEW] 기존 이미지 불러오기 (디테일 펜 초상화 + 세선화)")
         print("Q. 프로그램 종료")
-        mode = input(f"번호를 입력하세요 (1~8 또는 Q): ").strip().upper()
+        mode = input(f"번호를 입력하세요 (1~10 또는 Q): ").strip().upper()
 
         if mode == 'Q':
             print("프로그램을 종료합니다.")
@@ -43,8 +46,8 @@ def main():
         base_photo_name = None
         photo_specific_name = None
 
-        # 웹캠을 사용하는 모드 (1, 5, 7)
-        if mode in ['1', '5', '7']:
+        # 웹캠을 사용하는 모드 (1, 5, 7, 9)
+        if mode in ['1', '5', '7', '9']:
             base_photo_name = "webcam"
             photo_specific_name = f"{photo_counter}_{base_photo_name}"
             
@@ -60,8 +63,8 @@ def main():
             input_path = captured_path
             base_filename = os.path.splitext(os.path.basename(input_path))[0]
 
-        # 기존 이미지를 사용하는 모드 (2, 3, 4, 6, 8)
-        elif mode in ['2', '3', '4', '6', '8']:
+        # 기존 이미지를 사용하는 모드 (2, 3, 4, 6, 8, 10)
+        elif mode in ['2', '3', '4', '6', '8', '10']:
             print(f"\n'{config.GENERAL_INPUT_DIR}' 폴더의 이미지 목록:")
             try:
                 files = [f for f in os.listdir(config.GENERAL_INPUT_DIR) if os.path.isfile(os.path.join(config.GENERAL_INPUT_DIR, f))]
@@ -141,7 +144,7 @@ def main():
             photo_counter += 1
             continue
 
-        # [모드 1, 2, 5, 6, 7, 8] 인물 사진 처리 (자동 크롭)
+        # [모드 1, 2, 5, 6, 7, 8, 9, 10] 인물 사진 처리 (자동 크롭)
         print("\n>> [2단계] MediaPipe로 상체 및 얼굴 감지 시작")
         person_roi = detect_person_and_get_roi(image)
         
@@ -175,6 +178,34 @@ def main():
         if is_success_face:
             im_buf_arr_face.tofile(face_intermediate_path)
             print(f"   - 중간 저장(2. 얼굴 크롭): '{face_intermediate_path}'")
+
+        # ==========================================================
+        # [모드 9, 10] 디테일 펜 초상화 + 세선화 (로봇 드로잉 최적화)
+        # ==========================================================
+        if mode in ['9', '10']:
+            print("\n>> [3단계] 펜 초상화 디테일 선 추출 시작")
+            
+            # 여기서 image_processor.py에 추가한 함수를 호출합니다!
+            portrait_lines = generate_portrait_lines(face_image) 
+            
+            # 중간 결과물 확인용 저장
+            lines_path = os.path.join(intermediate_dir, f"{base_filename}_3_portrait_lines.png")
+            cv2.imencode(".png", portrait_lines)[1].tofile(lines_path)
+            print(f"   - 중간 저장(3. 디테일 선 추출): '{lines_path}'")
+            
+            output_base_name = f"{base_filename}_portrait_thinned"
+            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
+            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
+            
+            print("\n>> [4단계] 세선화(Thinning) 및 G-코드 생성 시작")
+            # 흑백으로 명확하게 따진 선 이미지를 그대로 세선화에 넣습니다.
+            generate_files_thinning(portrait_lines, nc_path, svg_path)
+            
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+            print("-" * 30)
+            photo_counter += 1
+            continue
+        # ==========================================================
 
         # --- 3단계: 이미지 전처리 (배경 제거 + 블러) ---
         print("\n>> [3단계] 이미지 전처리 시작")
@@ -211,7 +242,6 @@ def main():
             
             print("\n>> [4단계] Canny 외곽선 추출 시작")
             
-
             output_base_name = f"{base_filename}_ai_sketch_anime_canny"
             nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
             svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
@@ -235,7 +265,6 @@ def main():
             svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
             
             print("\n>> [4단계] 세선화(Thinning) 및 G-코드 생성 시작")
-            # 7, 8번 모드: 블러 없이 스케치 이미지를 그대로 세선화 모듈로 넘깁니다.
             generate_files_thinning(sketch_image, nc_path, svg_path)
             print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 

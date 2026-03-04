@@ -45,3 +45,26 @@ def image_processor(image_bgr: np.ndarray):
     except Exception as e:
         print(f"[오류] 이미지 처리 실패: {e}")
         return None
+    
+def generate_portrait_lines(image_bgr: np.ndarray) -> np.ndarray:
+    """
+    초상화 특화 라인 추출:
+    머리카락 결, 눈매, 옷 주름 등 디테일한 선을 추출하여 세선화(Thinning)하기 좋은 상태로 만듭니다.
+    """
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.medianBlur(gray, 5)
+    
+    # blockSize와 C 값을 조절하여 선의 디테일을 결정합니다. (숫자가 작을수록 선이 많아짐)
+    edges = cv2.adaptiveThreshold(
+        blurred, 255,
+        cv2.ADAPTIVE_THRESH_MEAN_C,
+        cv2.THRESH_BINARY_INV,
+        blockSize=15,
+        C=7
+    )
+    
+    kernel = np.ones((2, 2), np.uint8)
+    clean_edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, kernel)
+    clean_edges = cv2.morphologyEx(clean_edges, cv2.MORPH_DILATE, kernel)
+    
+    return clean_edges

@@ -2,14 +2,49 @@ import cv2
 import numpy as np
 import os
 import svgwrite
+from scipy.interpolate import splprep, splev
 from .config import Z_SAFE, Z_DRAW, FEED_RATE, SCALE
+
+def smooth_path_spline(path, num_points_multiplier=3, smooth_factor=2.0):
+    """
+    울퉁불퉁한 픽셀 경로를 수학적인 B-Spline(베지어) 곡선으로 부드럽게 변환합니다.
+    이 과정을 거치면 픽셀의 계단 현상이 사라지고 완벽한 벡터 곡선이 됩니다.
+    """
+    pts = np.array(path)
+    
+    # 중복 점 제거 (Scipy 계산 에러 방지)
+    _, idx = np.unique(pts, axis=0, return_index=True)
+    pts = pts[np.sort(idx)]
+    
+    # 점이 4개 미만이면 곡선 생성이 불가능하므로 원본을 반환
+    if len(pts) < 4:
+        return [(float(p[0]), float(p[1])) for p in pts]
+
+    x = pts[:, 0]
+    y = pts[:, 1]
+
+    try:
+        # s(smooth_factor): 값이 클수록 선이 더 둥글고 매끄러워집니다.
+        # tck: 곡선의 수학적 방정식, u: 매개변수
+        tck, u = splprep([x, y], s=smooth_factor)
+        
+        # 곡선을 그릴 점의 개수를 원래 픽셀보다 늘려서 훨씬 부드럽게 쪼갭니다.
+        num_points = max(10, len(pts) * num_points_multiplier)
+        u_new = np.linspace(u.min(), u.max(), num_points)
+        
+        # 새로운 곡선 좌표 추출
+        x_new, y_new = splev(u_new, tck)
+        return list(zip(x_new, y_new))
+    except Exception as e:
+        # 곡선화 실패 시 안전하게 원본 경로 반환
+        return [(float(p[0]), float(p[1])) for p in pts]
+
 
 def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: str) -> bool:
     """
-    세선화(Thinning)된 이미지의 픽셀을 직접 추적하여 NC와 SVG 파일을 생성합니다.
-    findContours보다 스케치/일러스트에 더 적합하고, 한 번만 경로를 그리도록 보장합니다.
+    세선화(Thinning)된 픽셀을 추출한 뒤, 벡터(Spline) 곡선으로 변환하여 NC와 SVG를 생성합니다.
     """
-    print(">> [2단계] 파일 생성 시작 (세선화 방식, 픽셀 추적)")
+    print(">> [2단계] 파일 생성 시작 (벡터 곡선 스무딩 방식)")
 
     # 1. 이미지 전처리 (그레이스케일 및 이진화)
     if len(image.shape) == 3:
@@ -17,10 +52,7 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
     else:
         gray = image
     
-    # [수정] 이미지 대비를 극대화하여 연한 선을 진하게 만듦
     gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    
-    # [수정] 임계값을 128에서 230으로 대폭 올려 연한 회색 선도 모두 잡아냄
     _, binary_image = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY_INV)
     
     # 2. 세선화(뼈대 추출)
@@ -31,13 +63,11 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
     visited = np.zeros((h, w), dtype=bool)
     paths = []
     
-    # 8방향 탐색 우선순위 (대각선 포함)
     dirs = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
     
     for y in range(h):
         for x in range(w):
             if thinned[y, x] == 255 and not visited[y, x]:
-                # 새로운 획(path) 시작
                 path = []
                 cx, cy = x, y
                 
@@ -46,7 +76,6 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
                     path.append((float(cx), float(cy)))
                     
                     next_pixel = (-1, -1)
-                    # 현재 픽셀 주변의 방문하지 않은 흰색 픽셀 찾기
                     for dx, dy in dirs:
                         nx, ny = cx + dx, cy + dy
                         if 0 <= nx < w and 0 <= ny < h and thinned[ny, nx] == 255 and not visited[ny, nx]:
@@ -55,18 +84,22 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
                     
                     cx, cy = next_pixel
 
-                 # 점이 너무 적은 자잘한 노이즈는 버림
-                if len(path) > 3: # 너무 짧은 선은 무시하도록 기준을 살짝 올림
-                    # 1. 수집된 픽셀 경로를 OpenCV가 계산할 수 있는 Numpy 배열로 변환
+                # 너무 짧은 노이즈 점들은 버림 (길이 3 이하)
+                if len(path) > 3: 
+                    # 1. 원본 픽셀 경로 배열화
                     path_np = np.array(path, dtype=np.float32)
                     
-                    # 2. 경로 단순화 (스무딩)
-                    # epsilon 값이 커질수록 선이 둥글고 단순해집니다. (보통 1.0 ~ 2.0 사이가 좋습니다)
-                    epsilon = 1.5 
+                    # 2. 1차 단순화 (자잘한 지그재그를 펴줌)
+                    epsilon = 0.5
                     approx = cv2.approxPolyDP(path_np, epsilon, closed=False)
+                    approx_path = [(float(p[0][0]), float(p[0][1])) for p in approx]
                     
-                    # 3. 단순화된 경로를 다시 리스트 형태로 변환
-                    smoothed_path = [(float(p[0][0]), float(p[0][1])) for p in approx]
+                    # 3. [핵심] 스플라인(Spline) 알고리즘으로 매끄러운 곡선 변환!
+                    if len(approx_path) >= 4:
+                        # smooth_factor를 조절하여 부드러운 정도를 변경할 수 있습니다.
+                        smoothed_path = smooth_path_spline(approx_path, smooth_factor=3.0)
+                    else:
+                        smoothed_path = approx_path
                     
                     if len(smoothed_path) > 1:
                         paths.append(smoothed_path)
@@ -86,14 +119,17 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
             f.write(f"G0 Z{Z_SAFE}\n")
             
             for path in paths:
+                # SVG 저장 (부드러운 곡선 적용)
                 dwg.add(dwg.polyline(path, stroke='black', fill='none', stroke_width=1))
                 
+                # G-코드 저장
                 start_p = path[0]
                 sx, sy = start_p[0] * SCALE, start_p[1] * SCALE
                 
                 f.write(f"G0 X{sx:.3f} Y{-sy:.3f}\n")
                 f.write(f"G1 Z{Z_DRAW} F{FEED_RATE}\n")
                 
+                # 수많은 짧은 직선을 이어붙여 로봇에게 완벽한 곡선처럼 움직이게 함
                 for j in range(1, len(path)):
                     px, py = path[j][0] * SCALE, path[j][1] * SCALE
                     f.write(f"G1 X{px:.3f} Y{-py:.3f}\n")
@@ -107,7 +143,7 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
             
         dwg.save()
         
-        print(f">> 생성 완료! 총 {count}개의 획")
+        print(f">> 생성 완료! 총 {count}개의 부드러운 벡터 획")
         print(f"   1. SVG 파일: {svg_filepath}")
         print(f"   2. NC  파일: {nc_filepath}")
         return True

@@ -59,21 +59,19 @@ def generate_files_canny(img_blurr: np.ndarray, nc_filepath: str, svg_filepath: 
 
             for i, contour in enumerate(contours):
                 # 잡티 제거 (너무 짧은 선은 무시)
-                if cv2.arcLength(contour, closed=False) < 15:
-                    continue
+                # if cv2.arcLength(contour, closed=False) < 5:
+                #     continue
 
                 # 단순화 (점 개수 줄이기)
                 epsilon = 0.002 * cv2.arcLength(contour, closed=False)
                 approx = cv2.approxPolyDP(contour, epsilon, closed=False)
 
-                if len(approx) < 2:
-                    continue
 
-                # 항상 trim 적용 → 갔다 되돌아오는 두겹 경로 제거
-                approx = trim_contour_to_midpoint(approx)
+                # # 항상 trim 적용 → 갔다 되돌아오는 두겹 경로 제거
+                # approx = trim_contour_to_midpoint(approx)
 
-                if len(approx) < 2:
-                    continue
+                # if len(approx) < 2:
+                #     continue
 
                 # --- [SVG 저장] ---
                 points = [(float(p[0][0]), float(p[0][1])) for p in approx]
