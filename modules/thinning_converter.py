@@ -2,39 +2,30 @@ import cv2
 import numpy as np
 import os
 import svgwrite
+from scipy.interpolate import splprep, splev  # B-Spline을 위한 SciPy 라이브러리 추가
 from .config import Z_SAFE, Z_DRAW, FEED_RATE, SCALE
 
-def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: str) -> bool:
+def generate_files_thinning(binary_image: np.ndarray, nc_filepath: str, svg_filepath: str) -> bool:
     """
-    세선화(Thinning)된 이미지의 픽셀을 직접 추적하여 NC와 SVG 파일을 생성합니다.
-    findContours보다 스케치/일러스트에 더 적합하고, 한 번만 경로를 그리도록 보장합니다.
+    이미 이진화된 이미지를 입력받아 세선화(Thinning)하고, 
+    B-Spline 보간법을 적용하여 매우 부드러운 NC/SVG 파일을 생성합니다.
     """
-    print(">> [2단계] 파일 생성 시작 (세선화 방식, 픽셀 추적)")
+    print(">> [2단계] 파일 생성 시작 (세선화 + B-Spline 곡선 최적화)")
 
-    # 1. 이미지 전처리 (그레이스케일 및 이진화)
-    if len(image.shape) == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = image
+    # 1. 흑백 반전 및 세선화
+    inverted_binary = cv2.bitwise_not(binary_image)
+    thinned = cv2.ximgproc.thinning(inverted_binary)
     
-    # 객체(선)는 흰색(255), 배경은 검은색(0)으로 변경
-    _, binary_image = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
-    
-    # 2. 세선화(뼈대 추출)
-    thinned = cv2.ximgproc.thinning(binary_image)
-    
-    # 3. 픽셀 추적을 통해 선분(Path) 추출
+    # 2. 픽셀 추적(DFS)을 통해 선분(Path) 추출
     h, w = thinned.shape
     visited = np.zeros((h, w), dtype=bool)
     paths = []
     
-    # 8방향 탐색 우선순위 (대각선 포함)
     dirs = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
     
     for y in range(h):
         for x in range(w):
             if thinned[y, x] == 255 and not visited[y, x]:
-                # 새로운 획(path) 시작
                 path = []
                 cx, cy = x, y
                 
@@ -43,7 +34,6 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
                     path.append((float(cx), float(cy)))
                     
                     next_pixel = (-1, -1)
-                    # 현재 픽셀 주변의 방문하지 않은 흰색 픽셀 찾기
                     for dx, dy in dirs:
                         nx, ny = cx + dx, cy + dy
                         if 0 <= nx < w and 0 <= ny < h and thinned[ny, nx] == 255 and not visited[ny, nx]:
@@ -52,9 +42,35 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
                     
                     cx, cy = next_pixel
 
-                # 점이 너무 적은 자잘한 노이즈는 버림
-                if len(path) > 2:
-                    paths.append(path)
+                 # 3. [핵심] 수집된 픽셀 경로에 B-Spline 적용
+                if len(path) > 5: 
+                    path_np = np.array(path, dtype=np.float32)
+                    
+                    # 3차 스플라인 곡선을 그리려면 최소 4개의 점이 필요합니다.
+                    if len(path_np) > 4:
+                        try:
+                            # x, y 좌표 분리
+                            px = path_np[:, 0]
+                            py = path_np[:, 1]
+
+                            # B-Spline 계산
+                            # s(평활도): 숫자가 커질수록 픽셀의 각진 부분을 무시하고 부드러운 곡선이 됩니다. (보통 2.0 ~ 5.0 사이가 좋습니다)
+                            tck, u = splprep([px, py], s=3.0, k=3)
+
+                            # 부드러워진 곡선을 따라 G코드를 생성할 점들을 새로 찍습니다.
+                            # 점의 개수를 원래 픽셀 수의 40%로 줄여 G코드 용량 최적화
+                            num_points = max(5, int(len(path_np) * 0.4))
+                            u_new = np.linspace(0, 1, num_points)
+                            x_new, y_new = splev(u_new, tck)
+
+                            smoothed_path = [(float(nx), float(ny)) for nx, ny in zip(x_new, y_new)]
+                            paths.append(smoothed_path)
+                            
+                        except Exception as e:
+                            # 곡선 연산에 실패할 경우(점이 너무 겹쳐있는 등) 원본 경로 유지
+                            paths.append([(float(p[0]), float(p[1])) for p in path_np])
+                    else:
+                        paths.append([(float(p[0]), float(p[1])) for p in path_np])
 
     # 4. SVG 및 G-코드 생성
     os.makedirs(os.path.dirname(svg_filepath), exist_ok=True)
@@ -92,9 +108,7 @@ def generate_files_thinning(image: np.ndarray, nc_filepath: str, svg_filepath: s
             
         dwg.save()
         
-        print(f">> 생성 완료! 총 {count}개의 획")
-        print(f"   1. SVG 파일: {svg_filepath}")
-        print(f"   2. NC  파일: {nc_filepath}")
+        print(f">> 생성 완료! 총 {count}개의 부드러운 획")
         return True
         
     except Exception as e:

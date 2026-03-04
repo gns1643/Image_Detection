@@ -4,3 +4,6 @@ rembg
 Pillow
 svgwrite
 mediapipe
+torch
+torchvision
+scipy

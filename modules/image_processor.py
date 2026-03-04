@@ -1,23 +1,27 @@
 import cv2
 import numpy as np
-from rembg import remove
+from rembg import remove, new_session
 from PIL import Image
+import os
+
+# ONNX Runtime의 불필요한 로그(에러 메시지)를 줄이기 위한 환경 변수 설정
+os.environ["ORT_LOGGING_LEVEL"] = "3" 
 
 def image_processor(image_bgr: np.ndarray):
     """
     이미지(OpenCV)를 입력받아 배경을 제거하고 부드럽게(Blur) 만듭니다.
-    
-    :param image_bgr: 배경을 제거할 OpenCV 이미지 객체 (BGR 형식)
-    :return: 전처리된 이미지 (Grayscale, blurred)
     """
     print(">> [2단계] 이미지 전처리 (배경 제거 및 블러)")
     
     try:
-        # 1. PIL 포맷으로 변환 (BGR -> RGB) 후 배경 제거
-        # rembg는 PIL 이미지를 입력으로 받습니다.
+        # 1. PIL 포맷으로 변환 (BGR -> RGB)
         rgb_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         input_img_pil = Image.fromarray(rgb_image)
-        output_img_pil = remove(input_img_pil)
+        
+        # [수정] CPU 전용 세션을 생성하여 CUDA 관련 빨간 에러 메시지 방지
+        # 모델명은 기본값인 'u2net'을 사용합니다.
+        session = new_session("u2net", providers=['CPUExecutionProvider'])
+        output_img_pil = remove(input_img_pil, session=session)
         
         # 2. 다시 OpenCV 포맷으로 변환
         img_np = np.array(output_img_pil)
