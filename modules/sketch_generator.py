@@ -25,7 +25,7 @@ def generate_sketch(image_bgr: np.ndarray) -> np.ndarray:
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_GRAY2RGB)
     
     h, w = image_rgb.shape[:2]
-    max_size = 512
+    max_size = 1024
     scale = max_size / max(h, w)
     if scale < 1.0:
         new_w, new_h = int(w * scale), int(h * scale)
@@ -62,6 +62,6 @@ def generate_sketch(image_bgr: np.ndarray) -> np.ndarray:
     if len(output_image.shape) == 3:
         output_image = output_image[0]
 
-    final_sketch = cv2.resize(output_image, (w, h), interpolation=cv2.INTER_LINEAR)
+    final_sketch = cv2.resize(output_image, (w, h), interpolation=cv2.INTER_LANCZOS4)
     
     return final_sketch

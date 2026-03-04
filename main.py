@@ -7,6 +7,7 @@ from modules import (
     config,
     image_processor,
     generate_files_canny,
+    generate_files_binary,
     generate_files_thinning,
     detect_person_and_get_roi,
     detect_face_and_get_roi,
@@ -209,14 +210,31 @@ def main():
                 im_buf_sketch.tofile(sketch_path)
                 print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
             
-            print("\n>> [4단계] Canny 외곽선 추출 시작")
+            # --- 추가된 로직: 이진화 처리 및 중간 저장 ---
+            print("\n>> [4단계] 이진화(Binarization) 및 중간 저장 시작")
             
+            if len(sketch_image.shape) == 3:
+                gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray_sketch = sketch_image
+                
+            # 임계값 200: 숫자를 낮추면 진한 선만, 높이면 연한 선도 포함됩니다.
+            _, binary_sketch = cv2.threshold(gray_sketch, 220, 255, cv2.THRESH_BINARY)
+            
+            binary_path = os.path.join(intermediate_dir, f"{base_filename}_5_binary.png")
+            is_success_bin, im_buf_bin = cv2.imencode(".png", binary_sketch)
+            if is_success_bin:
+                im_buf_bin.tofile(binary_path)
+                print(f"   - 중간 저장(5. 이진화): '{binary_path}'")
+            # ----------------------------------------------
 
-            output_base_name = f"{base_filename}_ai_sketch_anime_canny"
+            print("\n>> [5단계] 외곽선 추출 및 G-코드 생성 시작")
+            output_base_name = f"{base_filename}_ai_sketch_anime_binary"
             nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
             svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
             
-            generate_files_canny(sketch_image, nc_path, svg_path)
+            # Canny 대신 이진화 이미지 전용 함수로 G코드 생성
+            generate_files_binary(binary_sketch, nc_path, svg_path)
             print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 
         elif mode in ['7', '8']:
@@ -230,13 +248,30 @@ def main():
                 im_buf_sketch.tofile(sketch_path)
                 print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
             
+            # --- [수정된 부분] 1회만 이진화 수행 및 저장 ---
+            print("\n>> [4단계] 이진화(Binarization) 및 중간 저장 시작")
+            if len(sketch_image.shape) == 3:
+                gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray_sketch = sketch_image
+                
+            # 눈으로 확인하기 편하도록 흰 바탕에 검은 선(THRESH_BINARY)으로 만듭니다.
+            _, binary_sketch = cv2.threshold(gray_sketch, 220, 255, cv2.THRESH_BINARY)
+            
+            binary_path = os.path.join(intermediate_dir, f"{base_filename}_5_binary.png")
+            is_success_bin, im_buf_bin = cv2.imencode(".png", binary_sketch)
+            if is_success_bin:
+                im_buf_bin.tofile(binary_path)
+                print(f"   - 중간 저장(5. 이진화): '{binary_path}'")
+            # ---------------------------------------------------
+            
             output_base_name = f"{base_filename}_ai_sketch_anime_thinning"
             nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
             svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
             
-            print("\n>> [4단계] 세선화(Thinning) 및 G-코드 생성 시작")
-            # 7, 8번 모드: 블러 없이 스케치 이미지를 그대로 세선화 모듈로 넘깁니다.
-            generate_files_thinning(sketch_image, nc_path, svg_path)
+            print("\n>> [5단계] 세선화(Thinning) 및 G-코드 생성 시작")
+            # 원본 스케치 대신 '이진화가 완료된 이미지'를 모듈로 넘깁니다.
+            generate_files_thinning(binary_sketch, nc_path, svg_path)
             print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 
         print("-" * 30)
