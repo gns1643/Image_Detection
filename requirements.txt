@@ -7,3 +7,5 @@ mediapipe
 torch
 torchvision
 scipy
+google-generativeai
+google-api-core

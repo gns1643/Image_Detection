@@ -6,3 +6,6 @@ from .thinning_converter import generate_files_thinning
 from .human_cropper import detect_person_and_get_roi, detect_face_and_get_roi
 from .photo_booth import run_photo_booth  
 from .sketch_generator import generate_sketch
+from .ap_sketch_generator import generate_ap_sketch
+from .visualizer import create_pipeline_diagram
+from .nanobanana_generator import generate_nanobanana_sketch

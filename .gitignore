@@ -5,3 +5,4 @@ garbageFile/
 Test/
 data/*
 !data/.gitkeep
+modules/models
