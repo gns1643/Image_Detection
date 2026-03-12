@@ -7,3 +7,4 @@ mediapipe
 torch
 torchvision
 scipy
+google-genai

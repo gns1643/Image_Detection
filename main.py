@@ -14,6 +14,8 @@ from modules import (
     run_photo_booth,
     generate_sketch
 )
+# 새로운 Gemini 스케치 모듈 임포트
+from modules.gemini_sketch import generate_gemini_sketch
 
 def main():
     print(">> 심플 G-코드 변환기 (MediaPipe + AI 스케치 기반) 시작")
@@ -28,11 +30,12 @@ def main():
         print("="*50)
         print("1. 기존 Canny 방식 (외곽선 강조)")
         print("2. 기존 세선화 방식 (스케치/일러스트용)")
-        print("3. Informative-Drawing 기반 AI 스케치 (추천)")
+        print("3. Informative-Drawing 기반 AI 스케치 (Anime 스타일)")
+        print("4. Gemini AI 기반 고품질 스케치 (세선화 추천)")
         print("Q. 프로그램 종료")
         print("="*50)
         
-        main_choice = input("선택 (1~3 또는 Q): ").strip().upper()
+        main_choice = input("선택 (1~4 또는 Q): ").strip().upper()
 
         if main_choice == 'Q':
             print("프로그램을 종료합니다.")
@@ -63,6 +66,14 @@ def main():
             mapping = {'1': '5', '2': '6', '3': '7', '4': '8'}
             mode = mapping.get(sub_choice)
 
+        elif main_choice == '4':
+            print("\n[Gemini AI 고품질 스케치 하위 메뉴]")
+            print("1. 웹캠 촬영 (Gemini AI + 세선화)")
+            print("2. 기존 이미지 불러오기 (Gemini AI + 세선화)")
+            sub_choice = input("선택 (1~2): ").strip()
+            mapping = {'1': '9', '2': '10'}
+            mode = mapping.get(sub_choice)
+
         if mode is None:
             print("[알림] 잘못된 선택이거나 상위 메뉴로 돌아갑니다.")
             continue
@@ -70,8 +81,8 @@ def main():
         base_photo_name = None
         photo_specific_name = None
 
-        # 웹캠을 사용하는 모드 (1, 5, 7)
-        if mode in ['1', '5', '7']:
+        # 웹캠을 사용하는 모드 (1, 5, 7, 9)
+        if mode in ['1', '5', '7', '9']:
             base_photo_name = "webcam"
             photo_specific_name = f"{photo_counter}_{base_photo_name}"
             
@@ -87,8 +98,8 @@ def main():
             input_path = captured_path
             base_filename = os.path.splitext(os.path.basename(input_path))[0]
 
-        # 기존 이미지를 사용하는 모드 (2, 3, 4, 6, 8)
-        elif mode in ['2', '3', '4', '6', '8']:
+        # 기존 이미지를 사용하는 모드 (2, 3, 4, 6, 8, 10)
+        elif mode in ['2', '3', '4', '6', '8', '10']:
             print(f"\n'{config.GENERAL_INPUT_DIR}' 폴더의 이미지 목록:")
             try:
                 files = [f for f in os.listdir(config.GENERAL_INPUT_DIR) if os.path.isfile(os.path.join(config.GENERAL_INPUT_DIR, f))]
@@ -168,7 +179,7 @@ def main():
             photo_counter += 1
             continue
 
-        # [모드 1, 2, 5, 6, 7, 8] 인물 사진 처리 (자동 크롭)
+        # [모드 1, 2, 5, 6, 7, 8, 9, 10] 인물 사진 처리 (자동 크롭)
         print("\n>> [2단계] MediaPipe로 상체 및 얼굴 감지 시작")
         person_roi = detect_person_and_get_roi(image)
         
@@ -226,7 +237,7 @@ def main():
             print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 
         elif mode in ['5', '6']:
-            print("\n>> [3.5단계] 딥러닝 AI 스케치 변환 (Anime 스타일) 시작")
+            print("\n>> [3.5단계] Informative-Drawing AI 스케치 (Anime) 시작")
             sketch_image = generate_sketch(img_blur)
             if sketch_image is None: continue
                 
@@ -236,35 +247,22 @@ def main():
                 im_buf_sketch.tofile(sketch_path)
                 print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
             
-            # --- 추가된 로직: 이진화 처리 및 중간 저장 ---
-            print("\n>> [4단계] 이진화(Binarization) 및 중간 저장 시작")
-            
+            print("\n>> [4단계] 이진화(Binarization) 및 G-코드 생성 시작")
             if len(sketch_image.shape) == 3:
                 gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
             else:
                 gray_sketch = sketch_image
-                
-            # 임계값 200: 숫자를 낮추면 진한 선만, 높이면 연한 선도 포함됩니다.
             _, binary_sketch = cv2.threshold(gray_sketch, 220, 255, cv2.THRESH_BINARY)
             
-            binary_path = os.path.join(intermediate_dir, f"{base_filename}_5_binary.png")
-            is_success_bin, im_buf_bin = cv2.imencode(".png", binary_sketch)
-            if is_success_bin:
-                im_buf_bin.tofile(binary_path)
-                print(f"   - 중간 저장(5. 이진화): '{binary_path}'")
-            # ----------------------------------------------
-
-            print("\n>> [5단계] 외곽선 추출 및 G-코드 생성 시작")
             output_base_name = f"{base_filename}_ai_sketch_anime_binary"
             nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
             svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
             
-            # Canny 대신 이진화 이미지 전용 함수로 G코드 생성
             generate_files_binary(binary_sketch, nc_path, svg_path)
             print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 
         elif mode in ['7', '8']:
-            print("\n>> [3.5단계] 딥러닝 AI 스케치 변환 (Anime 스타일) 시작")
+            print("\n>> [3.5단계] Informative-Drawing AI 스케치 (Anime) 시작")
             sketch_image = generate_sketch(img_blur)
             if sketch_image is None: continue
                 
@@ -274,29 +272,45 @@ def main():
                 im_buf_sketch.tofile(sketch_path)
                 print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
             
-            # --- [수정된 부분] 1회만 이진화 수행 및 저장 ---
-            print("\n>> [4단계] 이진화(Binarization) 및 중간 저장 시작")
             if len(sketch_image.shape) == 3:
                 gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
             else:
                 gray_sketch = sketch_image
-                
-            # 눈으로 확인하기 편하도록 흰 바탕에 검은 선(THRESH_BINARY)으로 만듭니다.
             _, binary_sketch = cv2.threshold(gray_sketch, 220, 255, cv2.THRESH_BINARY)
-            
-            binary_path = os.path.join(intermediate_dir, f"{base_filename}_5_binary.png")
-            is_success_bin, im_buf_bin = cv2.imencode(".png", binary_sketch)
-            if is_success_bin:
-                im_buf_bin.tofile(binary_path)
-                print(f"   - 중간 저장(5. 이진화): '{binary_path}'")
-            # ---------------------------------------------------
             
             output_base_name = f"{base_filename}_ai_sketch_anime_thinning"
             nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
             svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
             
             print("\n>> [5단계] 세선화(Thinning) 및 G-코드 생성 시작")
-            # 원본 스케치 대신 '이진화가 완료된 이미지'를 모듈로 넘깁니다.
+            generate_files_thinning(binary_sketch, nc_path, svg_path)
+            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+
+        elif mode in ['9', '10']:
+            # --- Gemini AI + 세선화 모드 ---
+            print("\n>> [3.5단계] Gemini AI 고품질 스케치 생성 시작")
+            sketch_image = generate_gemini_sketch(img_blur)
+            if sketch_image is None: continue
+                
+            sketch_path = os.path.join(intermediate_dir, f"{base_filename}_4_gemini_sketch.png")
+            is_success_sketch, im_buf_sketch = cv2.imencode(".png", sketch_image)
+            if is_success_sketch:
+                im_buf_sketch.tofile(sketch_path)
+                print(f"   - 중간 저장(4. Gemini 스케치): '{sketch_path}'")
+            
+            print("\n>> [4단계] 이진화 및 세선화 처리 시작")
+            if len(sketch_image.shape) == 3:
+                gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray_sketch = sketch_image
+                
+            # Gemini 결과물은 이미 깨끗하므로 이진화 수행
+            _, binary_sketch = cv2.threshold(gray_sketch, 240, 255, cv2.THRESH_BINARY)
+            
+            output_base_name = f"{base_filename}_gemini_ai_thinning"
+            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
+            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
+            
             generate_files_thinning(binary_sketch, nc_path, svg_path)
             print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
 
