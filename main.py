@@ -1,4 +1,3 @@
-import sys
 import os
 import cv2
 import numpy as np
@@ -12,310 +11,177 @@ from modules import (
     detect_person_and_get_roi,
     detect_face_and_get_roi,
     run_photo_booth,
-    generate_sketch
+    generate_sketch,
+    generate_gemini_sketch
 )
-# 새로운 Gemini 스케치 모듈 임포트
-from modules.gemini_sketch import generate_gemini_sketch
 
-def main():
-    print(">> 심플 G-코드 변환기 (MediaPipe + AI 스케치 기반) 시작")
+class SketchApp:
+    def __init__(self):
+        print(">> 심플 G-코드 변환기 (AI 스케치 통합 버전) 시작")
+        os.makedirs(config.GENERAL_INPUT_DIR, exist_ok=True)
+        config.initialize_session()
+        self.photo_counter = 1
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.gemini_prompt = None # None이면 기본 프롬프트 사용
 
-    os.makedirs(config.GENERAL_INPUT_DIR, exist_ok=True)
-    config.initialize_session()
-    photo_counter = 1
+    def check_gemini_config(self):
+        """Gemini 사용 전 API 키와 프롬프트를 확인 및 설정합니다."""
+        if not self.gemini_api_key:
+            print("\n[설정] Gemini API 키가 환경변수에 없습니다.")
+            self.gemini_api_key = input("API 키를 입력해주세요 (Enter로 건너뛰기 가능하나 기능 제한됨): ").strip()
+            if not self.gemini_api_key:
+                print("[경고] API 키가 없어 Gemini 기능을 사용할 수 없습니다.")
+                return False
+        
+        print("\n[Gemini 프롬프트 설정]")
+        print("1. 기본 프롬프트 (세선화 최적화 정교한 선화)")
+        print("2. 사용자 지정 프롬프트 입력")
+        p_choice = input("선택 (기본값 1): ").strip()
+        
+        if p_choice == '2':
+            self.gemini_prompt = input("프롬프트를 입력하세요: ").strip()
+        else:
+            self.gemini_prompt = None # 기본 프롬프트 사용
+            
+        return True
 
-    while True:
+    def run(self):
+        while True:
+            choice = self.show_main_menu()
+            if choice == 'Q':
+                print("프로그램을 종료합니다.")
+                break
+            
+            mode_map = {
+                '1': ('AI_ANIME', 'WEBCAM'),
+                '2': ('AI_ANIME', 'FILE'),
+                '3': ('GEMINI', 'WEBCAM'),
+                '4': ('GEMINI', 'FILE')
+            }
+            
+            if choice not in mode_map:
+                print("[알림] 잘못된 선택입니다.")
+                continue
+                
+            sketch_type, input_type = mode_map[choice]
+            
+            # Gemini 모드일 경우 추가 설정 확인
+            if sketch_type == 'GEMINI':
+                if not self.check_gemini_config():
+                    continue
+            
+            # 2. 이미지 입력 받기
+            input_data = self.get_input(input_type)
+            if input_data is None:
+                continue
+            
+            input_path, base_filename = input_data
+            
+            # 3. 이미지 로드 및 크롭 (전처리)
+            processed_image, intermediate_dir, output_dir = self.preprocess(input_path, base_filename)
+            if processed_image is None:
+                continue
+
+            # 4. AI 스케치 생성 및 G-코드 변환
+            self.process_and_save(processed_image, sketch_type, base_filename, intermediate_dir, output_dir)
+            
+            self.photo_counter += 1
+            print("-" * 30)
+
+    def show_main_menu(self):
         print("\n" + "="*50)
         print(" [메인 메뉴] 작업 방식을 선택하세요")
         print("="*50)
-        print("1. 기존 Canny 방식 (외곽선 강조)")
-        print("2. 기존 세선화 방식 (스케치/일러스트용)")
-        print("3. Informative-Drawing 기반 AI 스케치 (Anime 스타일)")
-        print("4. Gemini AI 기반 고품질 스케치 (세선화 추천)")
-        print("Q. 프로그램 종료")
+        print(" 1. Informative-Drawing AI (Anime) + 웹캠 촬영")
+        print(" 2. Informative-Drawing AI (Anime) + 파일 불러오기")
+        print(" 3. Gemini AI 고품질 스케치 + 웹캠 촬영")
+        print(" 4. Gemini AI 고품질 스케치 + 파일 불러오기")
+        print(" Q. 프로그램 종료")
         print("="*50)
-        
-        main_choice = input("선택 (1~4 또는 Q): ").strip().upper()
+        return input("선택 (1~4 또는 Q): ").strip().upper()
 
-        if main_choice == 'Q':
-            print("프로그램을 종료합니다.")
-            break
-        
-        mode = None
-        if main_choice == '1':
-            print("\n[Canny 방식 하위 메뉴]")
-            print("1. 웹캠 촬영 (인물 크롭)")
-            print("2. 기존 이미지 불러오기 (인물 크롭)")
-            print("3. 기존 이미지 불러오기 (크롭 없음, 전체 외곽선)")
-            sub_choice = input("선택 (1~3): ").strip()
-            if sub_choice in ['1', '2', '3']: mode = sub_choice
-            
-        elif main_choice == '2':
-            print("\n[세선화 방식 하위 메뉴]")
-            print("1. 기존 이미지 불러오기 (스케치/일러스트 세선화)")
-            sub_choice = input("선택 (1): ").strip()
-            if sub_choice == '1': mode = '4'
-            
-        elif main_choice == '3':
-            print("\n[Informative-Drawing AI 스케치 하위 메뉴]")
-            print("1. 웹캠 촬영 (AI 스케치 + Canny)")
-            print("2. 기존 이미지 불러오기 (AI 스케치 + Canny)")
-            print("3. 웹캠 촬영 (AI 스케치 + 세선화)")
-            print("4. 기존 이미지 불러오기 (AI 스케치 + 세선화)")
-            sub_choice = input("선택 (1~4): ").strip()
-            mapping = {'1': '5', '2': '6', '3': '7', '4': '8'}
-            mode = mapping.get(sub_choice)
+    def get_input(self, input_type):
+        photo_specific_name = f"{self.photo_counter}_capture"
+        input_dir, _, _ = config.setup_photo_paths(photo_specific_name)
 
-        elif main_choice == '4':
-            print("\n[Gemini AI 고품질 스케치 하위 메뉴]")
-            print("1. 웹캠 촬영 (Gemini AI + 세선화)")
-            print("2. 기존 이미지 불러오기 (Gemini AI + 세선화)")
-            sub_choice = input("선택 (1~2): ").strip()
-            mapping = {'1': '9', '2': '10'}
-            mode = mapping.get(sub_choice)
-
-        if mode is None:
-            print("[알림] 잘못된 선택이거나 상위 메뉴로 돌아갑니다.")
-            continue
-
-        base_photo_name = None
-        photo_specific_name = None
-
-        # 웹캠을 사용하는 모드 (1, 5, 7, 9)
-        if mode in ['1', '5', '7', '9']:
-            base_photo_name = "webcam"
-            photo_specific_name = f"{photo_counter}_{base_photo_name}"
-            
-            input_dir, intermediate_dir, output_dir = config.setup_photo_paths(photo_specific_name)
-            
-            print("\n>> 포토부스를 실행합니다. (스페이스바: 촬영, ESC: 취소)")
+        if input_type == 'WEBCAM':
+            print("\n>> 포토부스 실행 (스페이스바: 촬영, ESC: 취소)")
             captured_path = run_photo_booth(save_dir=input_dir)
-            
             if captured_path is None:
-                print("[알림] 촬영이 취소되었습니다.")
-                continue
+                return None
+            return captured_path, "webcam"
+
+        elif input_type == 'FILE':
+            files = [f for f in os.listdir(config.GENERAL_INPUT_DIR) if os.path.isfile(os.path.join(config.GENERAL_INPUT_DIR, f))]
+            if not files:
+                print(f"[알림] '{config.GENERAL_INPUT_DIR}' 폴더에 이미지가 없습니다.")
+                return None
             
-            input_path = captured_path
-            base_filename = os.path.splitext(os.path.basename(input_path))[0]
-
-        # 기존 이미지를 사용하는 모드 (2, 3, 4, 6, 8, 10)
-        elif mode in ['2', '3', '4', '6', '8', '10']:
-            print(f"\n'{config.GENERAL_INPUT_DIR}' 폴더의 이미지 목록:")
-            try:
-                files = [f for f in os.listdir(config.GENERAL_INPUT_DIR) if os.path.isfile(os.path.join(config.GENERAL_INPUT_DIR, f))]
-                if not files:
-                    print("- 이미지가 없습니다. 해당 폴더에 이미지를 추가해주세요.")
-                    continue
-                for f in files:
-                    print(f"- {f}")
-            except FileNotFoundError:
-                print(f"- 폴더가 없습니다: '{config.GENERAL_INPUT_DIR}'")
-                continue
-
-            filename = input("파일명을 입력하세요: ").strip().strip('"')
-            original_input_path = os.path.join(config.GENERAL_INPUT_DIR, filename)
-
-            if not os.path.exists(original_input_path):
-                print(f"[오류] 파일이 없습니다: {original_input_path}")
-                continue
+            print(f"\n목록: {', '.join(files)}")
+            filename = input("파일명 입력: ").strip().strip('"')
+            src_path = os.path.join(config.GENERAL_INPUT_DIR, filename)
             
-            base_filename = os.path.splitext(filename)[0]
-            photo_specific_name = f"{photo_counter}_{base_filename}"
-
-            input_dir, intermediate_dir, output_dir = config.setup_photo_paths(photo_specific_name)
+            if not os.path.exists(src_path):
+                print(f"[오류] 파일이 없습니다: {src_path}")
+                return None
             
-            input_path = os.path.join(input_dir, filename)
-            shutil.copy(original_input_path, input_path)
-            print(f"'{original_input_path}' -> '{input_path}' 로 복사했습니다.")
+            dest_path = os.path.join(input_dir, filename)
+            shutil.copy(src_path, dest_path)
+            return dest_path, os.path.splitext(filename)[0]
 
-        else:
-            print("[오류] 잘못된 입력입니다.")
-            continue
+    def preprocess(self, input_path, base_filename):
+        photo_specific_name = f"{self.photo_counter}_capture"
+        _, intermediate_dir, output_dir = config.setup_photo_paths(photo_specific_name)
 
-        # --- 1단계: 이미지 로드 및 확인 ---
-        print(f"\n[1단계] 이미지 로드: {input_path}")
-        try:
-            img_array = np.fromfile(input_path, np.uint8)
-            if mode == '4':
-                image = cv2.imdecode(img_array, cv2.IMREAD_GRAYSCALE)
-            else:
-                image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-        except Exception as e:
-            print(f"[오류] 파일을 읽는 중 에러 발생: {e}")
-            continue
-
+        img_array = np.fromfile(input_path, np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         if image is None:
-            print(f"[오류] 이미지를 불러올 수 없습니다.")
-            continue
+            print("[오류] 이미지를 로드할 수 없습니다.")
+            return None, None, None
 
-        # [모드 4] 스케치/일러스트 처리 (세선화)
-        if mode == '4':
-            output_base_name = f"{base_filename}_thinned"
-            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-            
-            generate_files_thinning(image, nc_path, svg_path)
-            
-            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
-            print("-" * 30)
-            photo_counter += 1
-            continue
-
-        # [모드 3] 크롭 없이 Canny 외곽선 따기
-        if mode == '3':
-            img_blur = image_processor(image)
-            if img_blur is None:
-                print("[오류] 이미지 전처리 중 문제가 발생했습니다.")
-                continue
-            
-            output_base_name = f"{base_filename}_canny_full"
-            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-            
-            generate_files_canny(img_blur, nc_path, svg_path)
-            
-            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
-            print("-" * 30)
-            photo_counter += 1
-            continue
-
-        # [모드 1, 2, 5, 6, 7, 8, 9, 10] 인물 사진 처리 (자동 크롭)
-        print("\n>> [2단계] MediaPipe로 상체 및 얼굴 감지 시작")
         person_roi = detect_person_and_get_roi(image)
+        cropped = image[person_roi[1]:person_roi[1]+person_roi[3], person_roi[0]:person_roi[0]+person_roi[2]] if person_roi else image
         
-        if person_roi:
-            print("   - 상체 감지 완료. 이미지를 자릅니다.")
-            x, y, w, h = person_roi
-            person_image = image[y:y+h, x:x+w]
-        else:
-            print("   - 상체를 감지하지 못했습니다. 전체 이미지를 사용합니다.")
-            person_image = image
-
-        person_intermediate_filename = f"{base_filename}_cropped_person.jpg"
-        person_intermediate_path = os.path.join(intermediate_dir, person_intermediate_filename)
-        is_success_person, im_buf_arr_person = cv2.imencode(".jpg", person_image)
-        if is_success_person:
-            im_buf_arr_person.tofile(person_intermediate_path)
-            print(f"   - 중간 저장(1. 상체 크롭): '{person_intermediate_path}'")
-
-        face_roi = detect_face_and_get_roi(person_image)
+        face_roi = detect_face_and_get_roi(cropped)
         if face_roi:
-            print("   - 얼굴 감지 완료. A5 비율로 이미지를 다시 자릅니다.")
-            x1, y1, x2, y2 = face_roi
-            face_image = person_image[y1:y2, x1:x2]
-        else:
-            print("   - 얼굴을 감지하지 못했습니다. 상체 이미지를 그대로 사용합니다.")
-            face_image = person_image
+            cropped = cropped[face_roi[1]:face_roi[3], face_roi[0]:face_roi[2]]
 
-        face_intermediate_filename = f"{base_filename}_cropped_face.jpg"
-        face_intermediate_path = os.path.join(intermediate_dir, face_intermediate_filename)
-        is_success_face, im_buf_arr_face = cv2.imencode(".jpg", face_image)
-        if is_success_face:
-            im_buf_arr_face.tofile(face_intermediate_path)
-            print(f"   - 중간 저장(2. 얼굴 크롭): '{face_intermediate_path}'")
+        preprocessed = image_processor(cropped)
+        if preprocessed is None:
+            preprocessed = cropped
 
-        # --- 3단계: 이미지 전처리 (배경 제거 + 블러) ---
-        print("\n>> [3단계] 이미지 전처리 시작")
-        img_blur = image_processor(face_image)
-        if img_blur is None:
-            print("[오류] 이미지 전처리 중 문제가 발생했습니다.")
-            continue
-            
-        bg_removed_path = os.path.join(intermediate_dir, f"{base_filename}_3_bg_removed.png")
-        is_success_bg, im_buf_bg = cv2.imencode(".png", img_blur)
-        if is_success_bg:
-            im_buf_bg.tofile(bg_removed_path)
-            print(f"   - 중간 저장(3. 배경 제거): '{bg_removed_path}'")
+        cv2.imencode(".jpg", preprocessed)[1].tofile(os.path.join(intermediate_dir, "preprocessed.jpg"))
+        return preprocessed, intermediate_dir, output_dir
+
+    def process_and_save(self, image, sketch_type, base_filename, intermediate_dir, output_dir):
+        print(f"\n>> [{sketch_type}] 스케치 생성 시작...")
         
-        # --- 4단계: 변환 및 저장 ---
-        if mode in ['1', '2']:
-            output_base_name = f"{base_filename}_canny_face"
-            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-            
-            generate_files_canny(img_blur, nc_path, svg_path)
-            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+        if sketch_type == 'AI_ANIME':
+            sketch = generate_sketch(image)
+            threshold_val = 220
+        else: # GEMINI
+            sketch = generate_gemini_sketch(image, api_key=self.gemini_api_key, prompt=self.gemini_prompt)
+            threshold_val = 240
 
-        elif mode in ['5', '6']:
-            print("\n>> [3.5단계] Informative-Drawing AI 스케치 (Anime) 시작")
-            sketch_image = generate_sketch(img_blur)
-            if sketch_image is None: continue
-                
-            sketch_path = os.path.join(intermediate_dir, f"{base_filename}_4_ai_sketch_anime.png")
-            is_success_sketch, im_buf_sketch = cv2.imencode(".png", sketch_image)
-            if is_success_sketch:
-                im_buf_sketch.tofile(sketch_path)
-                print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
-            
-            print("\n>> [4단계] 이진화(Binarization) 및 G-코드 생성 시작")
-            if len(sketch_image.shape) == 3:
-                gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray_sketch = sketch_image
-            _, binary_sketch = cv2.threshold(gray_sketch, 220, 255, cv2.THRESH_BINARY)
-            
-            output_base_name = f"{base_filename}_ai_sketch_anime_binary"
-            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-            
-            generate_files_binary(binary_sketch, nc_path, svg_path)
-            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+        if sketch is None:
+            print("[오류] 스케치 생성에 실패했습니다.")
+            return
 
-        elif mode in ['7', '8']:
-            print("\n>> [3.5단계] Informative-Drawing AI 스케치 (Anime) 시작")
-            sketch_image = generate_sketch(img_blur)
-            if sketch_image is None: continue
-                
-            sketch_path = os.path.join(intermediate_dir, f"{base_filename}_4_ai_sketch_anime.png")
-            is_success_sketch, im_buf_sketch = cv2.imencode(".png", sketch_image)
-            if is_success_sketch:
-                im_buf_sketch.tofile(sketch_path)
-                print(f"   - 중간 저장(4. AI 스케치): '{sketch_path}'")
-            
-            if len(sketch_image.shape) == 3:
-                gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray_sketch = sketch_image
-            _, binary_sketch = cv2.threshold(gray_sketch, 220, 255, cv2.THRESH_BINARY)
-            
-            output_base_name = f"{base_filename}_ai_sketch_anime_thinning"
-            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-            
-            print("\n>> [5단계] 세선화(Thinning) 및 G-코드 생성 시작")
-            generate_files_thinning(binary_sketch, nc_path, svg_path)
-            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
+        suffix = "anime" if sketch_type == 'AI_ANIME' else "gemini"
+        output_base = f"{base_filename}_{suffix}"
+        cv2.imencode(".png", sketch)[1].tofile(os.path.join(intermediate_dir, f"sketch_{suffix}.png"))
 
-        elif mode in ['9', '10']:
-            # --- Gemini AI + 세선화 모드 ---
-            print("\n>> [3.5단계] Gemini AI 고품질 스케치 생성 시작")
-            sketch_image = generate_gemini_sketch(img_blur)
-            if sketch_image is None: continue
-                
-            sketch_path = os.path.join(intermediate_dir, f"{base_filename}_4_gemini_sketch.png")
-            is_success_sketch, im_buf_sketch = cv2.imencode(".png", sketch_image)
-            if is_success_sketch:
-                im_buf_sketch.tofile(sketch_path)
-                print(f"   - 중간 저장(4. Gemini 스케치): '{sketch_path}'")
-            
-            print("\n>> [4단계] 이진화 및 세선화 처리 시작")
-            if len(sketch_image.shape) == 3:
-                gray_sketch = cv2.cvtColor(sketch_image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray_sketch = sketch_image
-                
-            # Gemini 결과물은 이미 깨끗하므로 이진화 수행
-            _, binary_sketch = cv2.threshold(gray_sketch, 240, 255, cv2.THRESH_BINARY)
-            
-            output_base_name = f"{base_filename}_gemini_ai_thinning"
-            nc_path = os.path.join(output_dir, f"{output_base_name}.nc")
-            svg_path = os.path.join(output_dir, f"{output_base_name}.svg")
-            
-            generate_files_thinning(binary_sketch, nc_path, svg_path)
-            print(f"\n>> 모든 작업 완료! '{output_base_name}' 이름으로 파일이 저장되었습니다.")
-
-        print("-" * 30)
-        photo_counter += 1
+        if len(sketch.shape) == 3:
+            sketch = cv2.cvtColor(sketch, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(sketch, threshold_val, 255, cv2.THRESH_BINARY)
+        
+        print(f">> [세선화 및 G-코드 생성] {output_base}")
+        nc_path = os.path.join(output_dir, f"{output_base}.nc")
+        svg_path = os.path.join(output_dir, f"{output_base}.svg")
+        
+        generate_files_thinning(binary, nc_path, svg_path)
+        print(f">> 완료: {output_base}.nc")
 
 if __name__ == "__main__":
-    main()
+    app = SketchApp()
+    app.run()

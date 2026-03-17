@@ -7,14 +7,27 @@ from google.genai import types
 # --- Gemini API 설정 ---
 MODEL_ID = "gemini-3.1-flash-image-preview"
 
-def generate_gemini_sketch(image_bgr: np.ndarray) -> np.ndarray:
+def generate_gemini_sketch(image_bgr: np.ndarray, api_key: str = None, prompt: str = None) -> np.ndarray:
     """
     OpenCV 이미지를 입력받아 Gemini API를 사용하여 세선화에 최적화된 고품질 선화를 생성합니다.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("\n[오류] GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
+        api_key = os.getenv("GEMINI_API_KEY")
+    
+    if not api_key:
+        print("\n[오류] GEMINI_API_KEY가 설정되지 않았습니다.")
         return None
+
+    if not prompt:
+        prompt = (
+            "A high-quality, pure black line art caricature based on the provided image. "
+            "The entire drawing is rendered exclusively with lines of exactly the same thickness "
+            "(uniform line weight, minimal width) using only solid black ink. "
+            "The lines are precise, unwavering, and appear machine-drawn for direct path tracing. "
+            "Only solid black lines on a clean white background. "
+            "No other colors, gradients, shading, or textures are present. "
+            "Minimalist geometric details. Focus purely on the continuity of the lines and the main simplified shape."
+        )
 
     print(f">> [Gemini 스케치] Gemini API({MODEL_ID})를 사용하여 선화 추출을 시작합니다.")
 
@@ -26,18 +39,8 @@ def generate_gemini_sketch(image_bgr: np.ndarray) -> np.ndarray:
             return None
         image_bytes = encoded_image.tobytes()
 
-        # 2. Gemini 클라이언트 및 프롬프트 설정 (세선화 최적화)
+        # 2. Gemini 클라이언트 설정
         client = genai.Client(api_key=api_key)
-        
-        prompt = (
-            "A high-quality, pure black line art caricature based on the provided image. "
-            "The entire drawing is rendered exclusively with lines of exactly the same thickness "
-            "(uniform line weight, minimal width) using only solid black ink. "
-            "The lines are precise, unwavering, and appear machine-drawn for direct path tracing. "
-            "Only solid black lines on a clean white background. "
-            "No other colors, gradients, shading, or textures are present. "
-            "Minimalist geometric details. Focus purely on the continuity of the lines and the main simplified shape."
-        )
 
         # 3. Gemini API 호출
         response = client.models.generate_content(
