@@ -13,7 +13,11 @@ from modules import (
     detect_face_and_get_roi,
     run_photo_booth,
     generate_sketch,
-    generate_gemini_sketch
+    generate_gemini_sketch,
+    is_inkscape_installed,
+    run_inkscape_trace,
+    parse_svg_paths,
+    generate_gcode_from_paths
 )
 
 class SketchApp:
@@ -106,18 +110,21 @@ class SketchApp:
                 print("프로그램을 종료합니다.")
                 break
             
+            # (Sketch Type, Input Type, Engine Type)
             mode_map = {
-                '1': ('AI_ANIME', 'WEBCAM'),
-                '2': ('AI_ANIME', 'FILE'),
-                '3': ('GEMINI', 'WEBCAM'),
-                '4': ('GEMINI', 'FILE')
+                '1': ('AI_ANIME', 'WEBCAM', 'THINNING'),
+                '2': ('AI_ANIME', 'FILE',   'THINNING'),
+                '3': ('GEMINI',   'WEBCAM', 'THINNING'),
+                '4': ('GEMINI',   'FILE',   'THINNING'),
+                '5': ('DIRECT',   'WEBCAM', 'INKSCAPE'),
+                '6': ('DIRECT',   'FILE',   'INKSCAPE')
             }
             
             if choice not in mode_map:
                 print("[알림] 잘못된 선택입니다.")
                 continue
                 
-            sketch_type, input_type = mode_map[choice]
+            sketch_type, input_type, engine = mode_map[choice]
             
             if sketch_type == 'GEMINI':
                 if not self.check_gemini_config():
@@ -132,23 +139,29 @@ class SketchApp:
             if processed_image is None:
                 continue
 
-            # 4. AI 스케치 생성 및 G-코드 변환 (Batch Mode 대응)
-            self.process_and_save(processed_image, sketch_type, base_filename, intermediate_dir, output_dir)
+            # 4. 이미지 변환 및 G-코드 생성
+            self.process_and_save(processed_image, sketch_type, base_filename, intermediate_dir, output_dir, engine=engine)
             
             self.photo_counter += 1
             print("-" * 30)
 
     def show_main_menu(self):
-        print("\n" + "="*50)
+        print("\n" + "="*60)
         print(" [메인 메뉴] 작업 방식을 선택하세요")
-        print("="*50)
-        print(" 1. Informative-Drawing AI (Anime) + 웹캠 촬영")
-        print(" 2. Informative-Drawing AI (Anime) + 파일 불러오기")
-        print(" 3. Gemini AI 고품질 스케치 + 웹캠 촬영")
-        print(" 4. Gemini AI 고품질 스케치 + 파일 불러오기")
+        print("="*60)
+        print(" <AI 스케치 + 세선화 모드>")
+        print(" 1. Anime AI + 웹캠 촬영")
+        print(" 2. Anime AI + 파일 불러오기")
+        print(" 3. Gemini AI + 웹캠 촬영")
+        print(" 4. Gemini AI + 파일 불러오기")
+        print("-"*60)
+        print(" <이미지 직접 벡터화 모드 (Inkscape)>")
+        print(" 5. Inkscape 벡터화 + 웹캠 촬영")
+        print(" 6. Inkscape 벡터화 + 파일 불러오기")
+        print("-"*60)
         print(" Q. 프로그램 종료")
-        print("="*50)
-        return input("선택 (1~4 또는 Q): ").strip().upper()
+        print("="*60)
+        return input("선택 (1~6 또는 Q): ").strip().upper()
 
     def get_input(self, input_type):
         photo_specific_name = f"{self.photo_counter}_capture"
@@ -203,8 +216,8 @@ class SketchApp:
         cv2.imencode(".jpg", preprocessed)[1].tofile(os.path.join(intermediate_dir, "preprocessed.jpg"))
         return preprocessed, intermediate_dir, output_dir
 
-    def process_and_save(self, image, sketch_type, base_filename, intermediate_dir, output_dir):
-        """AI 스케치 생성 후 세선화를 거쳐 G-코드로 저장합니다. (Batch 모드 지원)"""
+    def process_and_save(self, image, sketch_type, base_filename, intermediate_dir, output_dir, engine='THINNING'):
+        """AI 스케치 생성 후 세선화 또는 벡터화를 거쳐 G-코드로 저장합니다. (Batch 모드 지원)"""
         
         # Gemini 배치 모드 처리 (딕셔너리인 경우)
         if sketch_type == 'GEMINI' and isinstance(self.gemini_prompt, dict):
@@ -215,39 +228,66 @@ class SketchApp:
                 current_base = f"{base_filename}_{safe_style_name}"
                 
                 print(f"\n[{i}/{len(self.gemini_prompt)}] 스타일 적용 중: {style_name}")
-                self._single_process_and_save(image, sketch_type, prompt_text, current_base, intermediate_dir, output_dir)
+                self._single_process_and_save(image, sketch_type, prompt_text, current_base, intermediate_dir, output_dir, engine=engine)
         else:
             # 단일 모드 처리
-            self._single_process_and_save(image, sketch_type, self.gemini_prompt, base_filename, intermediate_dir, output_dir)
+            self._single_process_and_save(image, sketch_type, self.gemini_prompt, base_filename, intermediate_dir, output_dir, engine=engine)
 
-    def _single_process_and_save(self, image, sketch_type, prompt, base_filename, intermediate_dir, output_dir):
+    def _single_process_and_save(self, image, sketch_type, prompt, base_filename, intermediate_dir, output_dir, engine='THINNING'):
         """실제 한 장의 이미지를 변환하고 저장하는 내부 메서드"""
         if sketch_type == 'AI_ANIME':
             sketch = generate_sketch(image)
             threshold_val = 220
             suffix = "anime"
-        else: # GEMINI
+        elif sketch_type == 'GEMINI':
             sketch = generate_gemini_sketch(image, api_key=self.gemini_api_key, prompt=prompt)
             threshold_val = 240
             suffix = "gemini"
+        else: # DIRECT (AI 없이 바로 벡터화)
+            # [수정] Inkscape가 선을 잘 따도록 이미지를 고대비 이진화 처리
+            # 127보다 밝으면 흰색, 어두우면 검은색으로 강제 변환
+            _, sketch = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
+            threshold_val = 127
+            suffix = "direct"
 
         if sketch is None:
             print(f"[오류] '{base_filename}' 스케치 생성 실패")
             return
 
         output_base = f"{base_filename}_{suffix}"
-        cv2.imencode(".png", sketch)[1].tofile(os.path.join(intermediate_dir, f"{output_base}.png"))
+        png_path = os.path.join(intermediate_dir, f"{output_base}.png")
+        cv2.imencode(".png", sketch)[1].tofile(png_path)
 
         if len(sketch.shape) == 3:
             sketch = cv2.cvtColor(sketch, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(sketch, threshold_val, 255, cv2.THRESH_BINARY)
         
-        print(f">> [세선화 및 G-코드 생성] {output_base}")
         nc_path = os.path.join(output_dir, f"{output_base}.nc")
         svg_path = os.path.join(output_dir, f"{output_base}.svg")
-        
-        generate_files_thinning(binary, nc_path, svg_path)
-        print(f">> 완료: {output_base}.nc")
+
+        if engine == 'INKSCAPE':
+            if not is_inkscape_installed():
+                print("[오류] Inkscape가 설치되어 있지 않습니다. 설치 후 다시 시도해 주세요.")
+                return
+            else:
+                print(f">> [Inkscape 벡터화 및 G-코드 생성] {output_base}")
+                temp_svg = os.path.join(intermediate_dir, f"{output_base}_trace.svg")
+                if run_inkscape_trace(png_path, temp_svg):
+                    paths = parse_svg_paths(temp_svg)
+                    if not paths:
+                        print(f"[오류] '{output_base}'에서 추출된 벡터 경로가 없습니다. (이미지가 너무 흐리거나 작을 수 있습니다)")
+                        return
+                    h, w = sketch.shape[:2]
+                    generate_gcode_from_paths(paths, nc_path, svg_path, width=w, height=h)
+                    print(f">> 완료: {output_base}.nc")
+                else:
+                    print(f"[중단] Inkscape 벡터화 처리에 실패했습니다. 위 에러 메시지를 확인해 주세요.")
+                    return
+        else:
+            print(f">> [세선화 및 G-코드 생성] {output_base}")
+            generate_files_thinning(binary, nc_path, svg_path)
+            print(f">> 완료: {output_base}.nc")
+
 
 if __name__ == "__main__":
     app = SketchApp()
