@@ -32,10 +32,8 @@ class SketchApp:
     def load_prompts(self):
         """JSON 파일에서 프롬프트 목록을 로드합니다. 파일이 없으면 생성합니다."""
         default_prompts = {
-            "1. 세선화 최적화 (기본)": "A high-quality, pure black line art caricature based on the provided image. The entire drawing is rendered exclusively with lines of exactly the same thickness (uniform line weight, minimal width) using only solid black ink. DO NOT FILL ANY AREAS with solid color. Draw everything, including eyes and pupils, as hollow outlines only. Ensure there are no solid black regions or shading. The lines are precise and appear machine-drawn for direct path tracing.",
-            "2. 정밀한 얼굴 캐리커처": "A highly detailed black ink line art focusing on facial features and expressions. Pure black lines on a clean white background. Strictly NO SOLID FILLS. Eyes and pupils must be rendered as clean, hollow circular outlines with no solid color inside. The drawing must consist entirely of empty closed loops and paths for precise portrait plotting.",
-            "3. 미니멀리스트 (최소한의 선)": "An extreme minimalist line drawing using the absolute minimum number of continuous black lines to represent the person's character. Strictly no solid fills or shading. Represent eyes and pupils as simple hollow shapes without filling them. Only pure black outlines on a white background. Very clean for fast plotting.",
-            "4. 굵은 코믹스 외곽선": "Bold and strong black outlines, comic book style line art. Use only outlines to define shapes. Do not use solid fills for shadows, hair, or features. Eyes and pupils must be rendered as hollow line drawings with no solid fill. No solid black regions. High contrast but composed entirely of empty paths."
+            "준호버전": "A minimalist vector-style animated caricature of a person's face, designed for robotic arm drawing with constant line thickness and smooth paths. Key Details:\n\nLine Style: Clean, continuous black monoline strokes with no tapering. Minimalist aesthetic with zero unnecessary decorative lines.\nEyes & Features: Gentle and smooth eyes reflecting the original photo's shape, avoiding any jagged edges. Lips should be thin and naturally rendered, not thick.\nHair & Brows: Eyebrows and hair strands must not intersect; if they overlap, the hair lines must clearly sit on top of the eyebrows.\nHair Styling: The hairstyle should feature 4 to 5 distinct, smooth curved lines to represent texture. If the original has a part, emphasize the parting line; otherwise, keep it as a full-fringe/covered style.\nFacial Structure: The jawline and lower face shape must stay true to the original photo. Include facial wrinkles only subtly with minimal strokes.\nOverall Finish: Flat 2D vector art, high contrast, white background, optimized for G-code plotting.",
+            "준호버전_수정": "A minimalist black and white vector-style animated caricature of a person's face. The drawing must consist ONLY of clean black monoline strokes on a pure white background, with absolutely NO coloring, shading, or gray tones. It is designed for robotic arm drawing with constant line thickness and smooth paths.\n\nKey Details:\n\nLine Style: Clean, continuous, pure black monoline strokes with no tapering. Minimalist aesthetic with zero unnecessary decorative lines. Strictly no color fills.\n\nEyes & Features: Gentle and smooth eyes reflecting the original photo's shape, avoiding any jagged edges. Lips should be thin and naturally rendered, not thick.\n\nHair & Brows: Eyebrows and hair strands must not intersect; if they overlap, the hair lines must clearly sit on top of the eyebrows.\n\nHair Styling: The hairstyle should feature exactly 4 to 5 distinct, smooth curved lines to represent texture. If the original has a part, emphasize the parting line; otherwise, keep it as a full-fringe/covered style.\n\nFacial Structure: The jawline and lower face shape must stay true to the original photo. Include facial wrinkles only subtly with minimal black strokes.\n\nOverall Finish: Flat 2D vector line art, high contrast, pure white background, optimized for G-code plotting."
         }
         
         if not os.path.exists(self.prompts_file):
@@ -73,7 +71,7 @@ class SketchApp:
         print("-"*40)
         print(" 0. 모든 프롬프트 순차 실행 (Batch Mode)")
         for i, key in enumerate(prompt_keys, 1):
-            print(f" {key}")
+            print(f" {i}. {key}")
         print(f" {len(prompt_keys) + 1}. 사용자 직접 입력")
         print("-"*40)
         
@@ -84,12 +82,13 @@ class SketchApp:
                 print(">> [배치 모드] 모든 프롬프트를 순서대로 실행합니다.")
             elif not p_input:
                 self.gemini_prompt = self.prompts_dict[prompt_keys[0]]
+                print(f">> '1. {prompt_keys[0]}' 스타일(기본값)이 적용되었습니다.")
             else:
                 p_choice = int(p_input)
                 if 1 <= p_choice <= len(prompt_keys):
                     selected_key = prompt_keys[p_choice - 1]
                     self.gemini_prompt = self.prompts_dict[selected_key]
-                    print(f">> '{selected_key}' 스타일이 적용되었습니다.")
+                    print(f">> '{p_choice}. {selected_key}' 스타일이 적용되었습니다.")
                 elif p_choice == len(prompt_keys) + 1:
                     self.gemini_prompt = input("프롬프트를 직접 입력하세요: ").strip()
                 else:
