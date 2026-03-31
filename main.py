@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import shutil
 import json
+from concurrent.futures import ThreadPoolExecutor
 from modules import (
     config,
     image_processor,
@@ -30,29 +31,22 @@ class SketchApp:
         self.prompts_dict = self.load_prompts()
 
     def load_prompts(self):
-        """JSON 파일에서 프롬프트 목록을 로드합니다. 파일이 없으면 생성합니다."""
-        default_prompts = {
-            "준호버전": "A minimalist vector-style animated caricature of a person's face, designed for robotic arm drawing with constant line thickness and smooth paths. Key Details:\n\nLine Style: Clean, continuous black monoline strokes with no tapering. Minimalist aesthetic with zero unnecessary decorative lines.\nEyes & Features: Gentle and smooth eyes reflecting the original photo's shape, avoiding any jagged edges. Lips should be thin and naturally rendered, not thick.\nHair & Brows: Eyebrows and hair strands must not intersect; if they overlap, the hair lines must clearly sit on top of the eyebrows.\nHair Styling: The hairstyle should feature 4 to 5 distinct, smooth curved lines to represent texture. If the original has a part, emphasize the parting line; otherwise, keep it as a full-fringe/covered style.\nFacial Structure: The jawline and lower face shape must stay true to the original photo. Include facial wrinkles only subtly with minimal strokes.\nOverall Finish: Flat 2D vector art, high contrast, white background, optimized for G-code plotting.",
-            "준호버전_수정": "A minimalist black and white vector-style animated caricature of a person's face. The drawing must consist ONLY of clean black monoline strokes on a pure white background, with absolutely NO coloring, shading, or gray tones. It is designed for robotic arm drawing with constant line thickness and smooth paths.\n\nKey Details:\n\nLine Style: Clean, continuous, pure black monoline strokes with no tapering. Minimalist aesthetic with zero unnecessary decorative lines. Strictly no color fills.\n\nEyes & Features: Gentle and smooth eyes reflecting the original photo's shape, avoiding any jagged edges. Lips should be thin and naturally rendered, not thick.\n\nHair & Brows: Eyebrows and hair strands must not intersect; if they overlap, the hair lines must clearly sit on top of the eyebrows.\n\nHair Styling: The hairstyle should feature exactly 4 to 5 distinct, smooth curved lines to represent texture. If the original has a part, emphasize the parting line; otherwise, keep it as a full-fringe/covered style.\n\nFacial Structure: The jawline and lower face shape must stay true to the original photo. Include facial wrinkles only subtly with minimal black strokes.\n\nOverall Finish: Flat 2D vector line art, high contrast, pure white background, optimized for G-code plotting."
-        }
-        
+        """JSON 파일에서 프롬프트 목록을 로드합니다."""
         if not os.path.exists(self.prompts_file):
-            try:
-                os.makedirs(os.path.dirname(self.prompts_file), exist_ok=True)
-                with open(self.prompts_file, 'w', encoding='utf-8') as f:
-                    json.dump(default_prompts, f, indent=4, ensure_ascii=False)
-                print(f"[설정] 기본 프롬프트 파일이 생성되었습니다: {self.prompts_file}")
-            except Exception as e:
-                print(f"[경고] 프롬프트 파일 생성 실패: {e}")
-            return default_prompts
+            print(f"\n[오류] 프롬프트 설정 파일이 없습니다: {self.prompts_file}")
+            print("      'config/gemini_prompts.json' 파일을 생성하고 스타일을 추가해주세요.")
+            return {}
             
         try:
             with open(self.prompts_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return data if data else default_prompts
+                if not data:
+                    print(f"[경고] 프롬프트 파일이 비어 있습니다: {self.prompts_file}")
+                    return {}
+                return data
         except Exception as e:
-            print(f"[경고] 프롬프트 파일을 읽는 중 오류 발생: {e}")
-            return default_prompts
+            print(f"[오류] 프롬프트 파일을 읽는 중 오류 발생: {e}")
+            return {}
 
     def check_gemini_config(self):
         """Gemini 사용 전 API 키와 프롬프트를 확인 및 설정합니다."""
@@ -65,6 +59,20 @@ class SketchApp:
         
         self.prompts_dict = self.load_prompts()
         prompt_keys = list(self.prompts_dict.keys())
+
+        if not prompt_keys:
+            print("\n" + "-"*40)
+            print(" [알림] 등록된 Gemini 스타일이 없습니다.")
+            print(" 1. 사용자 직접 입력")
+            print(" Q. 메뉴로 돌아가기")
+            print("-"*40)
+            
+            p_input = input("선택 (1 또는 Q): ").strip().upper()
+            if p_input == '1':
+                self.gemini_prompt = input("프롬프트를 직접 입력하세요: ").strip()
+                return True if self.gemini_prompt else False
+            else:
+                return False
 
         print("\n" + "-"*40)
         print(" [Gemini 스타일 선택]")
@@ -79,7 +87,7 @@ class SketchApp:
             p_input = input(f"선택 (0~{len(prompt_keys) + 1}, 기본값 1): ").strip()
             if p_input == '0':
                 self.gemini_prompt = self.prompts_dict # 딕셔너리 전체 전달
-                print(">> [배치 모드] 모든 프롬프트를 순서대로 실행합니다.")
+                print(f">> [배치 모드] 모든 {len(prompt_keys)}개 스타일을 순차적으로 하나씩 실행합니다.")
             elif not p_input:
                 self.gemini_prompt = self.prompts_dict[prompt_keys[0]]
                 print(f">> '1. {prompt_keys[0]}' 스타일(기본값)이 적용되었습니다.")
@@ -207,31 +215,32 @@ class SketchApp:
         
         # Gemini 배치 모드 처리 (딕셔너리인 경우)
         if sketch_type == 'GEMINI' and isinstance(self.gemini_prompt, dict):
-            print(f"\n>> [일괄 처리 시작] 총 {len(self.gemini_prompt)}개의 스타일을 적용합니다.")
+            print(f"\n>> [일괄 순차 처리 시작] 총 {len(self.gemini_prompt)}개의 스타일을 하나씩 적용합니다.")
+            
             for i, (style_name, prompt_text) in enumerate(self.gemini_prompt.items(), 1):
                 # 파일명에 사용할 안전한 스타일 이름 생성
                 safe_style_name = "".join([c if c.isalnum() else "_" for c in style_name])
                 current_base = f"{base_filename}_{safe_style_name}"
                 
-                print(f"\n[{i}/{len(self.gemini_prompt)}] 스타일 적용 중: {style_name}")
-                self._single_process_and_save(image, sketch_type, prompt_text, current_base, intermediate_dir, output_dir)
+                print(f"\n[{style_name}] ({i}/{len(self.gemini_prompt)}) 작업 시작...")
+                self._single_process_and_save(image, sketch_type, prompt_text, current_base, intermediate_dir, output_dir, style_name)
         else:
             # 단일 모드 처리
-            self._single_process_and_save(image, sketch_type, self.gemini_prompt, base_filename, intermediate_dir, output_dir)
+            self._single_process_and_save(image, sketch_type, self.gemini_prompt, base_filename, intermediate_dir, output_dir, "단일 모드")
 
-    def _single_process_and_save(self, image, sketch_type, prompt, base_filename, intermediate_dir, output_dir):
+    def _single_process_and_save(self, image, sketch_type, prompt, base_filename, intermediate_dir, output_dir, style_name="Default"):
         """실제 한 장의 이미지를 변환하고 저장하는 내부 메서드"""
         if sketch_type == 'AI_ANIME':
             sketch = generate_sketch(image)
             threshold_val = 220
             suffix = "anime"
         else: # GEMINI
-            sketch = generate_gemini_sketch(image, api_key=self.gemini_api_key, prompt=prompt)
+            sketch = generate_gemini_sketch(image, api_key=self.gemini_api_key, prompt=prompt, style_name=style_name)
             threshold_val = 240
             suffix = "gemini"
 
         if sketch is None:
-            print(f"[오류] '{base_filename}' 스케치 생성 실패")
+            print(f"[{style_name}] [오류] '{base_filename}' 스케치 생성 실패")
             return
 
         output_base = f"{base_filename}_{suffix}"
@@ -241,12 +250,12 @@ class SketchApp:
             sketch = cv2.cvtColor(sketch, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(sketch, threshold_val, 255, cv2.THRESH_BINARY)
         
-        print(f">> [세선화 및 G-코드 생성] {output_base}")
+        print(f"[{style_name}] >> [세선화 및 G-코드 생성] {output_base}")
         nc_path = os.path.join(output_dir, f"{output_base}.nc")
         svg_path = os.path.join(output_dir, f"{output_base}.svg")
         
         generate_files_thinning(binary, nc_path, svg_path)
-        print(f">> 완료: {output_base}.nc")
+        print(f"[{style_name}] >> 완료: {output_base}.nc")
 
 if __name__ == "__main__":
     app = SketchApp()
