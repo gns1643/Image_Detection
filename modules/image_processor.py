@@ -18,6 +18,15 @@ def image_processor(image_bgr: np.ndarray):
         rgb_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         input_img_pil = Image.fromarray(rgb_image)
         
+        # [추가] 이미지 크기 조정 (가로 최대 1024px로 제한)
+        # 이미지가 너무 작으면 화질 저하 및 계단 현상이 생기고, 너무 크면 처리가 느려집니다.
+        max_width = 1024
+        w, h = input_img_pil.size
+        if w > max_width:
+            new_h = int(h * (max_width / w))
+            input_img_pil = input_img_pil.resize((max_width, new_h), Image.LANCZOS)
+            print(f"   - 이미지 리사이징 완료: {w}x{h} -> {max_width}x{new_h}")
+
         # [수정] CPU 전용 세션을 생성하여 CUDA 관련 빨간 에러 메시지 방지
         # 모델명은 기본값인 'u2net'을 사용합니다.
         session = new_session("u2net", providers=['CPUExecutionProvider'])
