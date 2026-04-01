@@ -21,15 +21,8 @@ def generate_gemini_sketch(image_bgr: np.ndarray, api_key: str = None, prompt: s
         return None
 
     if not prompt:
-        prompt = (
-            "A high-quality, pure black line art caricature based on the provided image. "
-            "The entire drawing is rendered exclusively with lines of exactly the same thickness "
-            "(uniform line weight, minimal width) using only solid black ink. "
-            "The lines are precise, unwavering, and appear machine-drawn for direct path tracing. "
-            "Only solid black lines on a clean white background. "
-            "No other colors, gradients, shading, or textures are present. "
-            "Minimalist geometric details. Focus purely on the continuity of the lines and the main simplified shape."
-        )
+        print(f"\n[{style_name}] [오류] 프롬프트가 제공되지 않았습니다.")
+        return None
 
     print(f">> [{style_name}] Gemini API({MODEL_ID})를 사용하여 선화 추출을 시작합니다.")
 
@@ -89,7 +82,8 @@ def generate_gemini_sketch(image_bgr: np.ndarray, api_key: str = None, prompt: s
 
             # 5. 후처리 (원본 크기로 맞추기 및 그레이스케일 변환)
             h, w = image_bgr.shape[:2]
-            final_sketch = cv2.resize(result_sketch, (w, h), interpolation=cv2.INTER_LANCZOS4)
+            # INTER_CUBIC은 LANCZOS4보다 부드러운 결과를 보여 계단 현상을 완화합니다.
+            final_sketch = cv2.resize(result_sketch, (w, h), interpolation=cv2.INTER_CUBIC)
             
             if len(final_sketch.shape) == 3:
                 final_sketch = cv2.cvtColor(final_sketch, cv2.COLOR_BGR2GRAY)

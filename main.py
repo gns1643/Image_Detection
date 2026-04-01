@@ -16,6 +16,7 @@ from modules import (
     generate_sketch,
     generate_gemini_sketch
 )
+from modules.gui_viewer import SketchGUI
 
 class SketchApp:
     def __init__(self):
@@ -25,6 +26,9 @@ class SketchApp:
         self.photo_counter = 1
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         self.gemini_prompt = None
+        
+        # GUI 뷰어 초기화
+        self.gui = SketchGUI()
         
         # 프롬프트 설정 파일 경로
         self.prompts_file = os.path.join(config.BASE_DIR, "config", "gemini_prompts.json")
@@ -230,6 +234,10 @@ class SketchApp:
 
     def _single_process_and_save(self, image, sketch_type, prompt, base_filename, intermediate_dir, output_dir, style_name="Default"):
         """실제 한 장의 이미지를 변환하고 저장하는 내부 메서드"""
+        # GUI 초기화
+        self.gui.clear_panels()
+        self.gui.update_image(0, image) # 1단계: 원본 표시
+
         if sketch_type == 'AI_ANIME':
             sketch = generate_sketch(image)
             threshold_val = 220
@@ -242,6 +250,9 @@ class SketchApp:
         if sketch is None:
             print(f"[{style_name}] [오류] '{base_filename}' 스케치 생성 실패")
             return
+        
+        # 2단계: AI 스케치 GUI 표시
+        self.gui.update_image(1, sketch)
 
         output_base = f"{base_filename}_{suffix}"
         cv2.imencode(".png", sketch)[1].tofile(os.path.join(intermediate_dir, f"{output_base}.png"))
@@ -249,6 +260,9 @@ class SketchApp:
         if len(sketch.shape) == 3:
             sketch = cv2.cvtColor(sketch, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(sketch, threshold_val, 255, cv2.THRESH_BINARY)
+        
+        # 3단계: 세선화 결과(이진화 이미지) GUI 표시
+        self.gui.update_image(2, binary)
         
         print(f"[{style_name}] >> [세선화 및 G-코드 생성] {output_base}")
         nc_path = os.path.join(output_dir, f"{output_base}.nc")
